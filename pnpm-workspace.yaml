@@ -1,0 +1,10 @@
+# Réglages pnpm (pnpm ≥ 10 lit ici, plus dans package.json).
+# allowBuilds : scripts de build autorisés — engines Prisma (prisma generate),
+# esbuild (tsx), @clerk/shared, unrs-resolver (ESLint).
+allowBuilds:
+  "@clerk/shared": true
+  "@prisma/client": true
+  "@prisma/engines": true
+  esbuild: true
+  prisma: true
+  unrs-resolver: true

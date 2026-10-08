@@ -1,0 +1,264 @@
+// ---------------------------------------------------------------
+// Super Admin Dashboard — Modules 1, 5 à 12 : schéma complet
+// Models : User, Tenant, TenantDomain, TenantUser, Plan, Subscription,
+//          Theme, AuditLog, TenantPayment, ShippingMethod
+// Enums  : Role, TenantStatus, SslStatus, SubscriptionStatus
+// ---------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ======================== ENUMS ================================
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MEMBER
+}
+
+enum TenantStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum SslStatus {
+  PENDING
+  ACTIVE
+  FAILED
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+// ======================== MODÈLES ==============================
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  role      Role     @default(MEMBER)
+
+  // Module 9 : désactivation du compte (le profil reste pour l'historique)
+  disabled  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantUsers TenantUser[]
+  auditLogs   AuditLog[]
+}
+
+model Tenant {
+  id        String       @id @default(cuid())
+  name      String
+  slug      String       @unique
+  status    TenantStatus @default(ACTIVE)
+  planId    String?
+  themeId   String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  // ---- Modules 5 & 6 : configuration de la boutique -------------
+  description    String?
+  currency       String   @default("EUR")
+  language       String   @default("fr")
+  timezone       String   @default("Europe/Paris")
+  primaryColor   String?
+  logoUrl        String?
+
+  // ---- Module 6 : client porteur de la boutique -----------------
+  contactName    String?
+  contactEmail   String?
+  contactPhone   String?
+  contactCountry String?
+
+  // ---- Module 6/14 : intégrations --------------------------------
+  clerkOrgId     String?
+
+  // ---- Module 10 : structure prête pour Stripe Billing -----------
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+
+  // ---- Module 5 : soft delete ------------------------------------
+  deletedAt      DateTime?
+
+  plan      Plan?         @relation(fields: [planId], references: [id], onDelete: SetNull)
+  theme     Theme?        @relation(fields: [themeId], references: [id], onDelete: SetNull)
+  subscription Subscription?
+  domains   TenantDomain[]
+  users     TenantUser[]
+  auditLogs AuditLog[]
+  payments  TenantPayment[]
+  shippingMethods ShippingMethod[]
+
+  @@index([status])
+  @@index([planId])
+  @@index([themeId])
+  @@index([deletedAt])
+  @@index([stripeCustomerId])
+}
+
+// Providers de paiement activés pour une boutique (clés API chiffrées
+// stockées côté module 7).
+model TenantPayment {
+  id             String   @id @default(cuid())
+  tenantId       String
+  provider       String
+  enabled        Boolean  @default(true)
+  apiKeyEncrypted String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+}
+
+// Méthodes de livraison d'une boutique (prix en centimes de la devise).
+model ShippingMethod {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  price     Int      @default(0)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model TenantDomain {
+  id        String    @id @default(cuid())
+  domain    String    @unique
+  sslStatus SslStatus @default(PENDING)
+
+  // ---- Module 8 : vérification DNS (CNAME vers le target Vercel) --
+  verified   Boolean   @default(false)
+  verifiedAt DateTime?
+  checkedAt  DateTime?
+
+  tenantId  String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model TenantUser {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  role      Role     @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+}
+
+model Plan {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+
+  // Module 10 : tarification (prix en centimes) + features JSON
+  price     Int      @default(0)
+  currency  String   @default("EUR")
+  features  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenants       Tenant[]
+  subscriptions Subscription[]
+}
+
+// Abonnement d'une boutique à un plan (module 10).
+model Subscription {
+  id                String             @id @default(cuid())
+  tenantId          String             @unique
+  planId            String
+  status            SubscriptionStatus @default(TRIAL)
+  startedAt         DateTime           @default(now())
+  currentPeriodEnd  DateTime?
+  canceledAt        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@index([planId])
+}
+
+model Theme {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  previewUrl  String?
+
+  // Module 11 : premium + catégorie sectorielle
+  isPremium Boolean @default(false)
+  category  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenants Tenant[]
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  userId    String?
+  action    String
+
+  // Module 12 : entité touchée + identifiant + IP du demandeur
+  entity    String?
+  entityId  String?
+  ip        String?
+
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([entity])
+}
+
+// Module 13 : réglages de la plateforme (clé/valeur JSON).
+model PlatformSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

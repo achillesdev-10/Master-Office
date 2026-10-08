@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    name: Lint · Typecheck · Build
+    runs-on: ubuntu-latest
+
+    env:
+      # BDD factice : le build ne touche pas la base (pages dynamiques),
+      # seules les erreurs de génération Prisma comptaient.
+      DATABASE_URL: postgresql://user:pass@localhost:5432/boutique?schema=public
+      # Clé Clerk au format valide (base64 de example.clerk.accounts.dev$).
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk
+      CLERK_SECRET_KEY: sk_test_ci_dummy
+      NEXT_PUBLIC_ROOT_DOMAIN: maboutique.com
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate
+        run: pnpm db:generate
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: TypeScript (strict)
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
