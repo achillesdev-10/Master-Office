@@ -2,7 +2,6 @@ import {
   PrismaClient,
   Role,
   SslStatus,
-  SubscriptionStatus,
   TenantStatus,
 } from "@prisma/client";
 
@@ -10,9 +9,9 @@ import {
  * Seed de démonstration — modules 1 à 15.
  * Idempotent : rejouable sans dupliquer de données (upserts / gardes).
  *
- * Couvre : Super Admin, plans (prix/features), thèmes (descriptions,
+ * Couvre : Super Admin, thèmes (descriptions,
  * catégorie, premium), utilisateurs, boutiques, domaines, membres,
- * abonnements, journal d'activité (entité/IP) et paramètres plateforme.
+ * journal d'activité (entité/IP) et paramètres plateforme.
  *
  * Exécution : pnpm db:seed   (requiert DATABASE_URL et une base accessible)
  */
@@ -37,60 +36,7 @@ async function main() {
   console.log(`  ✔ Super Admin : ${superAdmin.email}`);
 
   // ----------------------------------------------------------------
-  // 2. Plans (module 10 : prix en centimes, devise, features)
-  // ----------------------------------------------------------------
-  const plansData = [
-    {
-      name: "Starter",
-      slug: "starter",
-      price: 1900,
-      currency: "EUR",
-      features: ["1 boutique", "Thèmes standards", "Support email"],
-    },
-    {
-      name: "Pro",
-      slug: "pro",
-      price: 4900,
-      currency: "EUR",
-      features: [
-        "3 boutiques",
-        "Thèmes premium",
-        "Domaines personnalisés",
-        "Support prioritaire",
-      ],
-    },
-    {
-      name: "Business",
-      slug: "business",
-      price: 9900,
-      currency: "EUR",
-      features: [
-        "Boutiques illimitées",
-        "Tous les thèmes",
-        "API & webhooks",
-        "Support dédié 7j/7",
-      ],
-    },
-  ] as const;
-
-  const plans: Record<string, string> = {};
-  for (const plan of plansData) {
-    const row = await prisma.plan.upsert({
-      where: { slug: plan.slug },
-      update: {
-        name: plan.name,
-        price: plan.price,
-        currency: plan.currency,
-        features: [...plan.features],
-      },
-      create: { ...plan, features: [...plan.features] },
-    });
-    plans[plan.slug] = row.id;
-  }
-  console.log(`  ✔ Plans : ${plansData.map((p) => p.name).join(", ")}`);
-
-  // ----------------------------------------------------------------
-  // 3. Thèmes (module 11 : description + aperçu)
+  // 2. Thèmes (module 11 : description + aperçu)
   //    previewUrl reste null → l'UI génère un aperçu dégradé.
   // ----------------------------------------------------------------
   const themesData = [
@@ -116,7 +62,7 @@ async function main() {
       category: "electronique",
       isPremium: false,
       description:
-        "Catalogue dense et performant pour l’électronique : filtres techniques et caractéristiques détaillées.",
+        "Catalogue dense et performant pour l'électronique : filtres techniques et caractéristiques détaillées.",
     },
   ] as const;
 
@@ -137,7 +83,7 @@ async function main() {
   console.log(`  ✔ Thèmes : ${themesData.map((t) => t.slug).join(", ")}`);
 
   // ----------------------------------------------------------------
-  // 4. Utilisateurs de démo (clerkId placeholder) — rôles variés
+  // 3. Utilisateurs de démo (clerkId placeholder) — rôles variés
   //    pour la page /admin/users (module 9).
   // ----------------------------------------------------------------
   const usersData = [
@@ -158,17 +104,15 @@ async function main() {
   console.log(`  ✔ Utilisateurs : ${usersData.map((u) => u.email).join(", ")}`);
 
   // ----------------------------------------------------------------
-  // 5. Tenants de démonstration + domaines + membres + abonnements
+  // 4. Tenants de démonstration + domaines + membres
   // ----------------------------------------------------------------
   const tenantsData = [
     {
       name: "Ma Boutique Mode",
       slug: "ma-boutique-mode",
       status: TenantStatus.ACTIVE,
-      planId: plans["starter"],
       themeId: themes["mode-01"],
       domain: "ma-boutique-mode.example.com",
-      subscriptionStatus: SubscriptionStatus.ACTIVE,
       members: [
         { email: "owner@example.com", role: Role.ADMIN },
         { email: "staff@example.com", role: Role.MEMBER },
@@ -178,22 +122,16 @@ async function main() {
       name: "TechStore Démo",
       slug: "techstore-demo",
       status: TenantStatus.ACTIVE,
-      planId: plans["pro"],
       themeId: themes["electronique-01"],
       domain: "techstore-demo.example.com",
-      subscriptionStatus: SubscriptionStatus.TRIAL,
       members: [{ email: "admin@example.com", role: Role.ADMIN }],
     },
     {
-      // Brouillon sans plan → visible dans « Sans abonnement » (module 10)
-      // et dans le formulaire d'attribution.
       name: "Bazar Démo",
       slug: "bazar-demo",
       status: TenantStatus.DRAFT,
-      planId: undefined,
       themeId: themes["cosmetique-01"],
       domain: "bazar-demo.example.com",
-      subscriptionStatus: null,
       members: [],
     },
   ] as const;
@@ -207,14 +145,12 @@ async function main() {
       update: {
         name: tenant.name,
         status: tenant.status,
-        planId: tenant.planId ?? null,
         themeId: tenant.themeId ?? null,
       },
       create: {
         name: tenant.name,
         slug: tenant.slug,
         status: tenant.status,
-        planId: tenant.planId ?? null,
         themeId: tenant.themeId ?? null,
       },
     });
@@ -243,34 +179,13 @@ async function main() {
       });
     }
 
-    // Abonnement (module 10) — période de 30 jours autour de la création
-    if (row.planId && tenant.subscriptionStatus) {
-      const startedAt = new Date(Date.now() - 12 * 24 * 60 * 60 * 1000);
-      const currentPeriodEnd = new Date(Date.now() + 18 * 24 * 60 * 60 * 1000);
-      await prisma.subscription.upsert({
-        where: { tenantId: row.id },
-        update: {
-          planId: row.planId,
-          status: tenant.subscriptionStatus,
-          canceledAt: null,
-        },
-        create: {
-          tenantId: row.id,
-          planId: row.planId,
-          status: tenant.subscriptionStatus,
-          startedAt,
-          currentPeriodEnd,
-        },
-      });
-    }
-
     console.log(
       `  ✔ Tenant : ${row.name} (${tenant.domain}, ${tenant.members.length} membre(s))`,
     );
   }
 
   // ----------------------------------------------------------------
-  // 6. Journal d'activité (module 12) — 1 insertion, puis jamais
+  // 5. Journal d'activité (module 12) — 1 insertion, puis jamais
   // ----------------------------------------------------------------
   const auditCount = await prisma.auditLog.count();
   if (auditCount === 0) {
@@ -285,7 +200,7 @@ async function main() {
         entity: "Tenant",
         entityId: tenantsBySlug["ma-boutique-mode"] ?? null,
         ip: "127.0.0.1",
-        metadata: { source: "seed", plan: "starter" },
+        metadata: { source: "seed" },
         createdAt: minutesAgo(180),
       },
       {
@@ -297,16 +212,6 @@ async function main() {
         ip: "127.0.0.1",
         metadata: { domain: "ma-boutique-mode.example.com", ok: true },
         createdAt: minutesAgo(120),
-      },
-      {
-        action: "subscription.assign",
-        userId: superAdmin.id,
-        tenantId: tenantsBySlug["techstore-demo"] ?? null,
-        entity: "Subscription",
-        entityId: tenantsBySlug["techstore-demo"] ?? null,
-        ip: "127.0.0.1",
-        metadata: { plan: "pro", status: "TRIAL" },
-        createdAt: minutesAgo(90),
       },
       {
         action: "user.invite",
@@ -328,16 +233,6 @@ async function main() {
         metadata: { slug: "mode-01", field: "description" },
         createdAt: minutesAgo(30),
       },
-      {
-        action: "plan.create",
-        userId: superAdmin.id,
-        tenantId: null,
-        entity: "Plan",
-        entityId: plans["business"] ?? null,
-        ip: "127.0.0.1",
-        metadata: { slug: "business", name: "Business" },
-        createdAt: minutesAgo(5),
-      },
     ];
 
     await prisma.auditLog.createMany({ data: entries });
@@ -347,7 +242,7 @@ async function main() {
   }
 
   // ----------------------------------------------------------------
-  // 7. Paramètres de la plateforme (module 13) — valeurs par défaut.
+  // 6. Paramètres de la plateforme (module 13) — valeurs par défaut.
   //    `update: {}` : une valeur déjà saisie dans /admin/settings
   //    n'est jamais écrasée par le seed.
   // ----------------------------------------------------------------
@@ -358,7 +253,7 @@ async function main() {
         platformName: "Master Admin",
         rootDomain: process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "maboutique.com",
         supportEmail: "support@maboutique.com",
-        defaultCurrency: "EUR",
+        defaultCurrency: "XOF",
         maintenanceMode: false,
       },
     },

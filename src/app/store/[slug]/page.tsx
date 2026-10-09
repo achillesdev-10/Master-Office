@@ -1,73 +1,159 @@
+import { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { PackageOpen } from "lucide-react";
-import prisma from "@/lib/db/prisma";
+import Link from "next/link";
 import { resolveTenant } from "@/lib/tenant/resolve";
+import { getStorefrontProducts, getStorefrontCategories } from "@/lib/db/queries/storefront/products";
+import { ProductCard } from "@/components/storefront/product-card";
+import { CategoryNav } from "@/components/storefront/category-nav";
+import { HeroSection } from "@/components/storefront/hero-section";
+import { Skeleton } from "@/components/ui/skeleton";
 
-/**
- * Vitrine de la boutique (module 14) — placeholder volontaire :
- * le front marchand complet (catalogue, panier, checkout) sera branché
- * sur ce segment dans une itération ultérieure.
- */
+type Params = Promise<{ slug: string }>;
 
-export default async function StorePage({
+export async function generateMetadata({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Params;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const tenant = await resolveTenant(slug);
+  if (!tenant) return { title: "Boutique introuvable" };
+
+  return {
+    title: tenant.name,
+    description: tenant.description ?? undefined,
+    openGraph: {
+      title: tenant.name,
+      description: tenant.description ?? undefined,
+      images: tenant.logoUrl ? [tenant.logoUrl] : [],
+    },
+  };
+}
+
+async function FeaturedProducts({ slug }: { slug: string }) {
+  const tenant = await resolveTenant(slug);
+  if (!tenant) return null;
+
+  const result = await getStorefrontProducts(tenant.id, {
+    featured: true,
+    pageSize: 8,
+    sort: "newest",
+  });
+
+  if (result.items.length === 0) {
+    return (
+      <section className="py-12 px-4">
+        <div className="mx-auto max-w-5xl text-center py-16">
+          <p className="text-muted-foreground">Aucun produit en vedette pour le moment.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="py-12 px-4">
+      <div className="mx-auto max-w-5xl">
+        <h2 className="mb-6 text-2xl font-semibold">Nos coups de cœur</h2>
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {result.items.map((product) => (
+            <ProductCard key={product.id} product={product} slug={slug} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+async function CategoriesSection({ slug }: { slug: string }) {
+  const tenant = await resolveTenant(slug);
+  if (!tenant) return null;
+
+  const categories = await getStorefrontCategories(tenant.id);
+
+  if (categories.length === 0) return null;
+
+  return (
+    <section className="py-12 px-4 bg-muted/30">
+      <div className="mx-auto max-w-5xl">
+        <h2 className="mb-6 text-2xl font-semibold">Nos catégories</h2>
+        <CategoryNav categories={categories} slug={slug} />
+      </div>
+    </section>
+  );
+}
+
+async function NewArrivals({ slug }: { slug: string }) {
+  const tenant = await resolveTenant(slug);
+  if (!tenant) return null;
+
+  const result = await getStorefrontProducts(tenant.id, {
+    pageSize: 8,
+    sort: "newest",
+  });
+
+  if (result.items.length === 0) return null;
+
+  return (
+    <section className="py-12 px-4">
+      <div className="mx-auto max-w-5xl">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-semibold">Nouveautés</h2>
+          <Link
+            href={`/store/${slug}/products`}
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Voir tout →
+          </Link>
+        </div>
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {result.items.map((product) => (
+            <ProductCard key={product.id} product={product} slug={slug} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeroFallback() {
+  return <Skeleton className="h-64 w-full rounded-xl" />;
+}
+
+function ProductsFallback() {
+  return (
+    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      {[...Array(4)].map((_, i) => (
+        <Skeleton key={i} className="h-72 w-full rounded-lg" />
+      ))}
+    </div>
+  );
+}
+
+export default async function StoreHomePage({
+  params,
+}: {
+  params: Params;
 }) {
   const { slug } = await params;
   const tenant = await resolveTenant(slug);
   if (!tenant) notFound();
 
-  const theme = tenant.themeId
-    ? await prisma.theme.findUnique({
-        where: { id: tenant.themeId },
-        select: { name: true, isPremium: true },
-      })
-    : null;
-
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-16 sm:py-24">
-      <section className="mx-auto max-w-2xl text-center">
-        <span
-          aria-hidden
-          className="mx-auto mb-6 block h-1 w-16 rounded-full"
-          style={{ background: "var(--store-primary)" }}
-        />
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-          {tenant.name}
-        </h1>
-        {tenant.description && (
-          <p className="mt-4 text-muted-foreground">{tenant.description}</p>
-        )}
+    <div className="flex-1">
+      <Suspense fallback={<HeroFallback />}>
+        <HeroSection tenant={tenant} />
+      </Suspense>
 
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-xs">
-          <span className="rounded-full border px-3 py-1">
-            Devise&nbsp;: {tenant.currency}
-          </span>
-          <span className="rounded-full border px-3 py-1">
-            Langue&nbsp;: {tenant.language.toUpperCase()}
-          </span>
-          {theme && (
-            <span className="rounded-full border px-3 py-1">
-              Thème&nbsp;: {theme.name}
-              {theme.isPremium ? " (Premium)" : ""}
-            </span>
-          )}
-        </div>
-      </section>
+      <Suspense fallback={<ProductsFallback />}>
+        <FeaturedProducts slug={slug} />
+      </Suspense>
 
-      <section className="mx-auto mt-14 flex max-w-2xl flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-12 text-center">
-        <div className="rounded-full bg-muted p-4">
-          <PackageOpen aria-hidden className="size-6 text-muted-foreground" />
-        </div>
-        <div>
-          <h2 className="text-sm font-semibold">Catalogue en préparation</h2>
-          <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            La vitrine marchande (catalogue, panier, paiement) sera activée
-            prochainement sur ce sous-domaine.
-          </p>
-        </div>
-      </section>
+      <Suspense fallback={<ProductsFallback />}>
+        <NewArrivals slug={slug} />
+      </Suspense>
+
+      <CategoriesSection slug={slug} />
     </div>
   );
 }

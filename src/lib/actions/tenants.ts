@@ -182,7 +182,6 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
       logoUrl: tenant.logoUrl,
       description: tenant.description,
       themeId: tenant.themeId,
-      planId: tenant.planId,
       domains: [`${tenant.slug}.${getRootDomain()}`],
       rootDomain: getRootDomain(),
     });
@@ -315,7 +314,7 @@ export async function suspendTenant(id: string): Promise<ActionResult> {
   try {
     const tenant = await prisma.tenant.findFirst({
       where: { id: parsedId.data, deletedAt: null },
-      select: { id: true, name: true, slug: true, status: true },
+      select: { id: true, name: true, slug: true, status: true, domains: { select: { domain: true } } },
     });
     if (!tenant) return failure("Boutique introuvable.");
     if (tenant.status === TenantStatus.SUSPENDED) {
@@ -326,7 +325,8 @@ export async function suspendTenant(id: string): Promise<ActionResult> {
       where: { id: tenant.id },
       data: { status: TenantStatus.SUSPENDED },
     });
-    await invalidateTenantCache(tenant.slug);
+    const domains = tenant.domains.map((d) => d.domain);
+    await invalidateTenantCache(tenant.slug, domains);
     invalidateTenantResolveCache(tenant.slug);
     await logAction({
       action: "tenant.suspend",
@@ -357,7 +357,7 @@ export async function deleteTenant(id: string): Promise<ActionResult> {
   try {
     const tenant = await prisma.tenant.findFirst({
       where: { id: parsedId.data, deletedAt: null },
-      select: { id: true, name: true, slug: true, status: true },
+      select: { id: true, name: true, slug: true, status: true, domains: { select: { domain: true } } },
     });
     if (!tenant) return failure("Boutique introuvable.");
 
@@ -365,7 +365,8 @@ export async function deleteTenant(id: string): Promise<ActionResult> {
       where: { id: tenant.id },
       data: { deletedAt: new Date(), status: TenantStatus.ARCHIVED },
     });
-    await invalidateTenantCache(tenant.slug);
+    const domains = tenant.domains.map((d) => d.domain);
+    await invalidateTenantCache(tenant.slug, domains);
     invalidateTenantResolveCache(tenant.slug);
     await logAction({
       action: "tenant.delete",
@@ -400,7 +401,14 @@ async function getAdmin(): Promise<User | null> {
 async function findTenantRecord(id: string) {
   return prisma.tenant.findFirst({
     where: { id, deletedAt: null },
-    select: { id: true, name: true, slug: true, status: true, clerkOrgId: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      clerkOrgId: true,
+      domains: { select: { domain: true } },
+    },
   });
 }
 
@@ -940,7 +948,8 @@ export async function archiveTenant(id: string): Promise<ActionResult> {
       where: { id: tenant.id },
       data: { status: TenantStatus.ARCHIVED },
     });
-    await invalidateTenantCache(tenant.slug);
+    const domains = tenant.domains.map((d) => d.domain);
+    await invalidateTenantCache(tenant.slug, domains);
     invalidateTenantResolveCache(tenant.slug);
 
     await logAction({
@@ -976,7 +985,8 @@ export async function restoreTenant(id: string): Promise<ActionResult> {
       where: { id: tenant.id },
       data: { status: TenantStatus.ACTIVE },
     });
-    await invalidateTenantCache(tenant.slug);
+    const domains = tenant.domains.map((d) => d.domain);
+    await invalidateTenantCache(tenant.slug, domains);
     invalidateTenantResolveCache(tenant.slug);
 
     await logAction({

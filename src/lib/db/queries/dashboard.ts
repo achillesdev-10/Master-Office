@@ -36,6 +36,15 @@ export type TotalTenants = {
   percent: number | null;
 };
 
+export type TenantStatusCounts = {
+  active: number;
+  draft: number;
+  suspended: number;
+  archived: number;
+  /** Boutiques avec un problème (suspendues ou domaine SSL failed) */
+  withIssues: number;
+};
+
 export type RecentTenant = {
   id: string;
   name: string;
@@ -61,16 +70,18 @@ export type DashboardAlerts = {
   suspendedTenants: number;
   /** Domaines dont le SSL n'est pas ACTIVE (PENDING ou FAILED) */
   unverifiedDomains: number;
+  /** Domaines expirant dans les 30 jours */
+  domainsExpiringSoon: number;
 };
 
-/**
- * Prix mensuel (EUR) par plan — TODO : lire `Plan.price` dès que le champ
- * existe dans le schéma. Un plan inconnu compte pour 0.
- */
-const PLAN_MONTHLY_PRICE_EUR: Record<string, number> = {
-  starter: 29,
-  pro: 79,
-  business: 199,
+export type GlobalStats = {
+  totalTenants: number;
+  activeTenants: number;
+  tenantsWithIssues: number;
+  totalDomains: number;
+  domainsExpiring30Days: number;
+  domainsExpiring7Days: number;
+  recentActivityCount: number;
 };
 
 // ======================== KPIs ===================================
@@ -108,51 +119,115 @@ export const getTotalTenants = unstable_cache(
 );
 
 /**
- * Nombre de boutiques au statut ACTIVE.
+ * Répartition des boutiques par statut.
  */
-export const getActiveTenants = unstable_cache(
-  async (): Promise<number> =>
-    prisma.tenant.count({
-      where: { status: TenantStatus.ACTIVE, deletedAt: null },
-    }),
-  ["dashboard-active-tenants"],
+export const getTenantStatusCounts = unstable_cache(
+  async (): Promise<TenantStatusCounts> => {
+    const [active, draft, suspended, archived] = await Promise.all([
+      prisma.tenant.count({
+        where: { status: TenantStatus.ACTIVE, deletedAt: null },
+      }),
+      prisma.tenant.count({
+        where: { status: TenantStatus.DRAFT, deletedAt: null },
+      }),
+      prisma.tenant.count({
+        where: { status: TenantStatus.SUSPENDED, deletedAt: null },
+      }),
+      prisma.tenant.count({
+        where: { status: TenantStatus.ARCHIVED, deletedAt: null },
+      }),
+    ]);
+
+    // Boutiques avec problème : suspendues + domaines SSL failed
+    const sslFailedTenantIds = await prisma.tenantDomain.findMany({
+      where: { sslStatus: SslStatus.FAILED },
+      select: { tenantId: true },
+      distinct: ["tenantId"],
+    });
+    const sslFailedCount = sslFailedTenantIds.length;
+
+    const withIssues = suspended + sslFailedCount;
+
+    return { active, draft, suspended, archived, withIssues };
+  },
+  ["dashboard-tenant-status-counts"],
   CACHE_OPTIONS,
 );
 
 /**
  * Commandes du mois courant.
- * TODO(module commandes) : brancher sur le modèle Order quand il existera.
+ * Non disponible tant que le modèle Order n'existe pas.
  */
 export const getOrdersThisMonth = unstable_cache(
-  async (): Promise<number> => 0,
+  async (): Promise<{ count: number; available: boolean }> => {
+    // TODO(module commandes) : brancher sur le modèle Order quand il existera.
+    return { count: 0, available: false };
+  },
   ["dashboard-orders-this-month"],
   CACHE_OPTIONS,
 );
 
 /**
- * Revenu mensuel récurrent : somme (prix du plan × boutiques actives).
- * TODO : remplacer la table de prix locale par le champ `Plan.price`.
+ * Statistiques globales pour le dashboard.
  */
-export const getMonthlyRecurringRevenue = unstable_cache(
-  async (): Promise<number> => {
-    const plans = await prisma.plan.findMany({
-      select: {
-        slug: true,
-        _count: {
-          select: {
-            tenants: { where: { status: TenantStatus.ACTIVE } },
-          },
-        },
-      },
-    });
+export const getGlobalStats = unstable_cache(
+  async (): Promise<GlobalStats> => {
+    const now = new Date();
+    const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    return plans.reduce(
-      (sum, plan) =>
-        sum + (PLAN_MONTHLY_PRICE_EUR[plan.slug] ?? 0) * plan._count.tenants,
-      0,
-    );
+    const [
+      totalTenants,
+      activeTenants,
+      suspendedTenants,
+      totalDomains,
+      domainsExpiring30Days,
+      domainsExpiring7Days,
+      recentActivityCount,
+    ] = await Promise.all([
+      prisma.tenant.count({ where: { deletedAt: null } }),
+      prisma.tenant.count({
+        where: { status: TenantStatus.ACTIVE, deletedAt: null },
+      }),
+      prisma.tenant.count({
+        where: { status: TenantStatus.SUSPENDED, deletedAt: null },
+      }),
+      prisma.tenantDomain.count(),
+      prisma.tenantDomain.count({
+        where: {
+          expiresAt: { not: null, lte: in30Days, gte: now },
+        },
+      }),
+      prisma.tenantDomain.count({
+        where: {
+          expiresAt: { not: null, lte: in7Days, gte: now },
+        },
+      }),
+      prisma.auditLog.count({
+        where: {
+          createdAt: { gte: startOfMonth(now) },
+        },
+      }),
+    ]);
+
+    const sslFailedTenantIds = await prisma.tenantDomain.findMany({
+      where: { sslStatus: SslStatus.FAILED },
+      select: { tenantId: true },
+      distinct: ["tenantId"],
+    });
+    const sslFailedCount = sslFailedTenantIds.length;
+
+    return {
+      totalTenants,
+      activeTenants,
+      tenantsWithIssues: suspendedTenants + sslFailedCount,
+      totalDomains,
+      domainsExpiring30Days,
+      domainsExpiring7Days,
+      recentActivityCount,
+    };
   },
-  ["dashboard-mrr"],
+  ["dashboard-global-stats"],
   CACHE_OPTIONS,
 );
 
@@ -249,16 +324,25 @@ export const getTenantsGrowth = unstable_cache(
  */
 export const getDashboardAlerts = unstable_cache(
   async (): Promise<DashboardAlerts> => {
-    const [suspendedTenants, unverifiedDomains] = await Promise.all([
-      prisma.tenant.count({
-        where: { status: TenantStatus.SUSPENDED, deletedAt: null },
-      }),
-      prisma.tenantDomain.count({
-        where: { sslStatus: { not: SslStatus.ACTIVE } },
-      }),
-    ]);
+    const now = new Date();
+    const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    return { suspendedTenants, unverifiedDomains };
+    const [suspendedTenants, unverifiedDomains, domainsExpiringSoon] =
+      await Promise.all([
+        prisma.tenant.count({
+          where: { status: TenantStatus.SUSPENDED, deletedAt: null },
+        }),
+        prisma.tenantDomain.count({
+          where: { sslStatus: { not: SslStatus.ACTIVE } },
+        }),
+        prisma.tenantDomain.count({
+          where: {
+            expiresAt: { not: null, lte: in30Days, gte: now },
+          },
+        }),
+      ]);
+
+    return { suspendedTenants, unverifiedDomains, domainsExpiringSoon };
   },
   ["dashboard-alerts"],
   CACHE_OPTIONS,

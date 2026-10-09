@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 /** Providers qui nécessitent une clé API côté boutique. */
-const KEY_PROVIDERS: PaymentProvider[] = ["stripe", "paypal"];
+const KEY_PROVIDERS: PaymentProvider[] = ["orange_money", "mtn_money", "moov_money", "wave", "bank_transfer"];
 
 type RowState = {
   enabled: boolean;

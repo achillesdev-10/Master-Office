@@ -1,8 +1,12 @@
 // ---------------------------------------------------------------
-// Super Admin Dashboard — Modules 1, 5 à 12 : schéma complet
-// Models : User, Tenant, TenantDomain, TenantUser, Plan, Subscription,
-//          Theme, AuditLog, TenantPayment, ShippingMethod
-// Enums  : Role, TenantStatus, SslStatus, SubscriptionStatus
+// Super Admin Dashboard — Schéma multi-tenant e-commerce complet
+// Models : User, Tenant, TenantDomain, TenantUser, Theme,
+//          AuditLog, TenantPayment, ShippingMethod,
+//          Category, Product, ProductVariant, ProductImage, Inventory,
+//          Cart, CartItem, Order, OrderItem, Payment, DeliveryZone,
+//          Coupon, AnalyticsEvent
+// Enums  : Role, TenantStatus, SslStatus, OrderStatus, PaymentStatus,
+//          PaymentProvider, CouponType, AnalyticsEventType
 // ---------------------------------------------------------------
 
 generator client {
@@ -35,14 +39,58 @@ enum SslStatus {
   FAILED
 }
 
-enum SubscriptionStatus {
-  TRIAL
-  ACTIVE
-  PAST_DUE
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
   CANCELLED
 }
 
-// ======================== MODÈLES ==============================
+enum PaymentProvider {
+  ORANGE_MONEY
+  MTN_MONEY
+  MOOV_MONEY
+  WAVE
+  COD
+  BANK_TRANSFER
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+}
+
+enum AnalyticsEventType {
+  PAGE_VIEW
+  PRODUCT_VIEW
+  PRODUCT_CLICK
+  ADD_TO_CART
+  REMOVE_FROM_CART
+  CART_VIEW
+  CHECKOUT_STARTED
+  CHECKOUT_COMPLETED
+  ORDER_CREATED
+  PAYMENT_INITIATED
+  PAYMENT_COMPLETED
+  PAYMENT_FAILED
+  SEARCH
+  CATEGORY_VIEW
+}
+
+// ======================== MODÈLES EXISTANTS ==============================
 
 model User {
   id        String   @id @default(cuid())
@@ -58,6 +106,8 @@ model User {
 
   tenantUsers TenantUser[]
   auditLogs   AuditLog[]
+  orders      Order[]
+  carts       Cart[]
 }
 
 model Tenant {
@@ -65,53 +115,56 @@ model Tenant {
   name      String
   slug      String       @unique
   status    TenantStatus @default(ACTIVE)
-  planId    String?
   themeId   String?
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  // ---- Modules 5 & 6 : configuration de la boutique -------------
+  // ---- Configuration de la boutique -------------
   description    String?
-  currency       String   @default("EUR")
+  currency       String   @default("XOF")
   language       String   @default("fr")
-  timezone       String   @default("Europe/Paris")
+  timezone       String   @default("Africa/Abidjan")
   primaryColor   String?
   logoUrl        String?
 
-  // ---- Module 6 : client porteur de la boutique -----------------
+  // ---- Client porteur de la boutique -----------------
   contactName    String?
   contactEmail   String?
   contactPhone   String?
   contactCountry String?
 
-  // ---- Module 6/14 : intégrations --------------------------------
+  // ---- Intégrations --------------------------------
   clerkOrgId     String?
 
-  // ---- Module 10 : structure prête pour Stripe Billing -----------
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
-
-  // ---- Module 5 : soft delete ------------------------------------
+  // ---- Soft delete ------------------------------------
   deletedAt      DateTime?
 
-  plan      Plan?         @relation(fields: [planId], references: [id], onDelete: SetNull)
   theme     Theme?        @relation(fields: [themeId], references: [id], onDelete: SetNull)
-  subscription Subscription?
   domains   TenantDomain[]
   users     TenantUser[]
   auditLogs AuditLog[]
   payments  TenantPayment[]
   shippingMethods ShippingMethod[]
+  categories Category[]
+  products  Product[]
+  orders    Order[]
+  carts     Cart[]
+  coupons   Coupon[]
+  deliveryZones DeliveryZone[]
+  analyticsEvents AnalyticsEvent[]
+  productVariants ProductVariant[]
+  productImages ProductImage[]
+  inventories Inventory[]
+  cartItems CartItem[]
+  orderItems OrderItem[]
+  payments2 Payment[]
 
   @@index([status])
-  @@index([planId])
   @@index([themeId])
   @@index([deletedAt])
-  @@index([stripeCustomerId])
 }
 
-// Providers de paiement activés pour une boutique (clés API chiffrées
-// stockées côté module 7).
+// Providers de paiement activés pour une boutique (clés API chiffrées).
 model TenantPayment {
   id             String   @id @default(cuid())
   tenantId       String
@@ -138,6 +191,8 @@ model ShippingMethod {
   updatedAt DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveryZones DeliveryZone[]
+  orders Order[]
 
   @@index([tenantId])
 }
@@ -147,10 +202,14 @@ model TenantDomain {
   domain    String    @unique
   sslStatus SslStatus @default(PENDING)
 
-  // ---- Module 8 : vérification DNS (CNAME vers le target Vercel) --
+  // ---- Vérification DNS (CNAME vers le target Vercel) --
   verified   Boolean   @default(false)
   verifiedAt DateTime?
   checkedAt  DateTime?
+
+  // ---- Expiration / renouvellement domaine ------------
+  expiresAt  DateTime?
+  autoRenew  Boolean   @default(false)
 
   tenantId  String
   createdAt DateTime  @default(now())
@@ -159,6 +218,7 @@ model TenantDomain {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([expiresAt])
 }
 
 model TenantUser {
@@ -177,42 +237,6 @@ model TenantUser {
   @@index([userId])
 }
 
-model Plan {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  slug      String   @unique
-
-  // Module 10 : tarification (prix en centimes) + features JSON
-  price     Int      @default(0)
-  currency  String   @default("EUR")
-  features  Json?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tenants       Tenant[]
-  subscriptions Subscription[]
-}
-
-// Abonnement d'une boutique à un plan (module 10).
-model Subscription {
-  id                String             @id @default(cuid())
-  tenantId          String             @unique
-  planId            String
-  status            SubscriptionStatus @default(TRIAL)
-  startedAt         DateTime           @default(now())
-  currentPeriodEnd  DateTime?
-  canceledAt        DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
-
-  @@index([status])
-  @@index([planId])
-}
-
 model Theme {
   id          String   @id @default(cuid())
   name        String
@@ -220,7 +244,6 @@ model Theme {
   description String?
   previewUrl  String?
 
-  // Module 11 : premium + catégorie sectorielle
   isPremium Boolean @default(false)
   category  String?
 
@@ -236,7 +259,7 @@ model AuditLog {
   userId    String?
   action    String
 
-  // Module 12 : entité touchée + identifiant + IP du demandeur
+  // Entité touchée + identifiant + IP du demandeur
   entity    String?
   entityId  String?
   ip        String?
@@ -261,4 +284,388 @@ model PlatformSetting {
   value     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ======================== NOUVEAUX MODÈLES E-COMMERCE ==============================
+
+// Catégories de produits
+model Category {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  slug        String
+  description String?
+  imageUrl    String?
+  parentId    String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent      Category?   @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[]  @relation("CategoryHierarchy")
+  products    Product[]
+  coupons     Coupon[]    @relation("CouponCategories")
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([parentId])
+}
+
+// Produits
+model Product {
+  id          String   @id @default(cuid())
+  tenantId    String
+  categoryId  String?
+  name        String
+  slug        String
+  description String?
+  shortDescription String?
+  basePrice   Int      // Prix de base en centimes
+  compareAtPrice Int?  // Prix barré (promo)
+  costPrice   Int?     // Prix d'achat (pour marge)
+  sku         String?  // Référence interne
+  barcode     String?  // Code barre/EAN
+  weight      Int?     // Poids en grammes
+  length      Int?     // Longueur en cm
+  width       Int?     // Largeur en cm
+  height      Int?     // Hauteur en cm
+  isActive    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  requiresShipping Boolean @default(true)
+  trackInventory Boolean @default(true)
+  sortOrder   Int      @default(0)
+  metaTitle   String?
+  metaDescription String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category    Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  variants    ProductVariant[]
+  images      ProductImage[]
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+  coupons     Coupon[]         @relation("CouponProducts")
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([categoryId])
+  @@index([isActive])
+  @@index([isFeatured])
+  @@index([deletedAt])
+}
+
+// Variantes de produits (capacité, couleur, état, mémoire, etc.)
+model ProductVariant {
+  id            String   @id @default(cuid())
+  productId     String
+  tenantId      String
+  name          String   // Ex: "128 Go / Noir / Neuf"
+  sku           String?  // SKU spécifique à la variante
+  barcode       String?
+  price         Int      // Prix en centimes (peut différer du prix de base)
+  compareAtPrice Int?   // Prix promo
+  costPrice     Int?     // Coût d'achat
+  weight        Int?     // Poids en grammes
+  length        Int?     // cm
+  width         Int?     // cm
+  height        Int?     // cm
+  position      Int      @default(0) // Ordre d'affichage
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Attributs dynamiques (JSON) : { "capacité": "128 Go", "couleur": "Noir", "état": "Neuf" }
+  attributes    Json?
+
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inventory     Inventory?
+  images        ProductImage[]
+  orderItems    OrderItem[]
+  cartItems     CartItem[]
+
+  @@unique([tenantId, sku])
+  @@index([productId])
+  @@index([tenantId])
+  @@index([isActive])
+}
+
+// Images produits
+model ProductImage {
+  id          String   @id @default(cuid())
+  productId   String
+  variantId   String?
+  tenantId    String
+  url         String
+  altText     String?
+  position    Int      @default(0)
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([variantId])
+  @@index([tenantId])
+}
+
+// Inventaire / Stock par variante
+model Inventory {
+  id              String   @id @default(cuid())
+  variantId       String   @unique
+  tenantId        String
+  quantity        Int      @default(0)     // Stock disponible
+  reservedQty     Int      @default(0)     // Stock réservé (paniers, commandes en attente)
+  lowStockThreshold Int    @default(5)     // Seuil alerte stock bas
+  trackQuantity   Boolean  @default(true)  // Suivre le stock
+  allowBackorder  Boolean  @default(false) // Accepter commandes sans stock
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  variant         ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([quantity])
+}
+
+// Panier d'achat
+model Cart {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String?  // Null pour panier anonyme (session)
+  sessionId String?  // ID de session pour paniers anonymes
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime @default(dbgenerated("now() + interval '30 days'"))
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items     CartItem[]
+
+  @@unique([tenantId, userId])
+  @@unique([tenantId, sessionId])
+  @@index([tenantId])
+  @@index([expiresAt])
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  tenantId  String
+  productId String
+  variantId String?
+  quantity  Int      @default(1)
+  price     Int      // Prix au moment de l'ajout (en centimes)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart      Cart         @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@unique([cartId, productId, variantId])
+  @@index([cartId])
+  @@index([tenantId])
+}
+
+// Commandes
+model Order {
+  id              String       @id @default(cuid())
+  tenantId        String
+  userId          String?      // Client connecté (optionnel)
+  customerEmail   String       // Email pour notification
+  customerName    String
+  customerPhone   String?
+  status          OrderStatus  @default(PENDING)
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentProvider PaymentProvider?
+
+  // Adresses
+  billingAddress  Json         // { name, phone, address, city, country, postalCode }
+  shippingAddress Json
+
+  // Montants (en centimes)
+  subtotal        Int          @default(0)    // Sous-total produits
+  shippingPrice   Int          @default(0)
+  discountAmount  Int          @default(0)
+  taxAmount       Int          @default(0)
+  total           Int          @default(0)
+
+  // Métadonnées
+  currency        String       @default("XOF")
+  notes           String?      // Notes client
+  internalNotes   String?      // Notes internes admin
+  couponCode      String?      // Code promo utilisé
+  couponId        String?      // Coupon appliqué
+
+  // Livraison
+  shippingMethodId String?
+  trackingNumber   String?
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+
+  // Paiement
+  paymentReference String?     // Référence provider (Orange Money, etc.)
+  paidAt           DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items           OrderItem[]
+  payments        Payment[]
+  coupon          Coupon?      @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  shippingMethod  ShippingMethod? @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([customerEmail])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+// Lignes de commande
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  tenantId    String
+  productId   String
+  variantId   String?
+  productName String   // Nom figé au moment de la commande
+  variantName String?  // Nom variante figé
+  sku         String?
+  price       Int      // Prix unitaire au moment de la commande (centimes)
+  quantity    Int      @default(1)
+  total       Int      // price * quantity
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([tenantId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+// Paiements
+model Payment {
+  id              String         @id @default(cuid())
+  orderId         String
+  tenantId        String
+  provider        PaymentProvider
+  status          PaymentStatus  @default(PENDING)
+  amount          Int            // Montant en centimes
+  currency        String         @default("XOF")
+  reference       String?        // Référence externe (transaction ID provider)
+  metadata        Json?          // Données brutes du provider (webhook payload)
+  failureReason   String?
+  processedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  order           Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([tenantId])
+  @@index([provider])
+  @@index([status])
+  @@index([reference])
+  @@index([createdAt])
+}
+
+// Zones de livraison
+model DeliveryZone {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String   // Ex: "Abidjan", "Intérieur du pays", "International"
+  countries   String[] // Codes ISO pays
+  regions     String[] // Régions/villes spécifiques (vide = toutes)
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shippingMethods ShippingMethod[]
+
+  @@index([tenantId])
+  @@index([isActive])
+}
+
+// Coupons / Codes promo
+model Coupon {
+  id              String      @id @default(cuid())
+  tenantId        String
+  code            String      // Code unique (ex: "WELCOME10")
+  name            String      // Nom interne
+  description     String?
+  type            CouponType
+  value           Int         // Pourcentage (ex: 10 pour 10%) ou montant fixe en centimes
+  minOrderAmount  Int?        // Montant minimum commande
+  maxDiscount     Int?        // Plafond remise (pour %)
+  usageLimit      Int?        // Limite globale d'utilisation
+  usageLimitPerCustomer Int?  // Limite par client
+  usedCount       Int         @default(0)
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  isActive        Boolean     @default(true)
+  appliesToAll    Boolean     @default(true) // Si false, appliquer à produits/catégories spécifiques
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  tenant          Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders          Order[]
+  applicableProducts Product[] @relation("CouponProducts")
+  applicableCategories Category[] @relation("CouponCategories")
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([code])
+  @@index([isActive])
+  @@index([expiresAt])
+}
+
+// Événements Analytics
+model AnalyticsEvent {
+  id          String            @id @default(cuid())
+  tenantId    String
+  userId      String?           // Utilisateur connecté (si connu)
+  sessionId   String            // ID de session (anonyme ou connecté)
+  eventType   AnalyticsEventType
+  entityType  String?           // "product", "category", "cart", "order", "page"
+  entityId    String?           // ID de l'entité concernée
+  properties  Json?             // Données flexibles : { productId, variantId, price, quantity, categoryId, searchQuery, referrer, utm_source, utm_medium, utm_campaign, ... }
+  userAgent   String?
+  ip          String?
+  referrer    String?
+  url         String?
+  createdAt   DateTime          @default(now())
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([sessionId])
+  @@index([eventType])
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }

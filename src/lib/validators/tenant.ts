@@ -12,74 +12,62 @@ import { z } from "zod";
 
 export const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const PAYMENT_PROVIDERS = ["stripe", "paypal", "cod", "wire"] as const;
+export const PAYMENT_PROVIDERS = [
+  "orange_money",
+  "mtn_money",
+  "moov_money",
+  "wave",
+  "cod",
+  "bank_transfer",
+] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
 
 export const PAYMENT_PROVIDER_LABELS: Record<PaymentProvider, string> = {
-  stripe: "Stripe",
-  paypal: "PayPal",
+  orange_money: "Orange Money",
+  mtn_money: "MTN Mobile Money",
+  moov_money: "Moov Money",
+  wave: "Wave",
   cod: "Paiement à la livraison",
-  wire: "Virement bancaire",
+  bank_transfer: "Virement bancaire",
 };
 
 export const CURRENCIES = [
+  "XOF",
   "EUR",
   "USD",
-  "GBP",
-  "CAD",
-  "CHF",
-  "XOF",
-  "MAD",
-  "CNY",
 ] as const;
 
 export const CURRENCY_LABELS: Record<(typeof CURRENCIES)[number], string> = {
+  XOF: "Franc CFA (XOF)",
   EUR: "Euro (EUR)",
   USD: "Dollar US (USD)",
-  GBP: "Livre sterling (GBP)",
-  CAD: "Dollar canadien (CAD)",
-  CHF: "Franc suisse (CHF)",
-  XOF: "Franc CFA (XOF)",
-  MAD: "Dirham marocain (MAD)",
-  CNY: "Yuan (CNY)",
 };
 
-export const LANGUAGES = ["fr", "en", "es", "de", "pt"] as const;
+export const LANGUAGES = ["fr", "en"] as const;
 
 export const LANGUAGE_LABELS: Record<(typeof LANGUAGES)[number], string> = {
   fr: "Français",
   en: "English",
-  es: "Español",
-  de: "Deutsch",
-  pt: "Português",
 };
 
 export const TIMEZONES = [
-  "Europe/Paris",
-  "Europe/Brussels",
-  "Europe/Zurich",
-  "Europe/London",
-  "Africa/Dakar",
   "Africa/Abidjan",
+  "Africa/Dakar",
   "Africa/Lome",
   "Africa/Casablanca",
-  "America/Montreal",
-  "America/New_York",
+  "Africa/Tunis",
+  "Europe/Paris",
 ] as const;
 
 export const COUNTRIES = [
-  "France",
-  "Belgique",
-  "Suisse",
-  "Canada",
-  "Luxembourg",
-  "Sénégal",
   "Côte d'Ivoire",
+  "Sénégal",
   "Togo",
   "Bénin",
   "Cameroun",
   "Maroc",
   "Tunisie",
+  "France",
 ] as const;
 
 // ======================== ÉTAPES =================================

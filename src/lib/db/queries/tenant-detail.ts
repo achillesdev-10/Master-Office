@@ -56,7 +56,6 @@ export type TenantStats = {
   shippingMethods: number;
   auditLogs30d: number;
   theme: string | null;
-  plan: string | null;
   clerkConnected: boolean;
 };
 
@@ -159,7 +158,6 @@ export async function getTenantStats(tenantId: string): Promise<TenantStats> {
         select: {
           clerkOrgId: true,
           theme: { select: { name: true } },
-          plan: { select: { name: true } },
         },
       }),
     ]);
@@ -173,7 +171,6 @@ export async function getTenantStats(tenantId: string): Promise<TenantStats> {
     shippingMethods,
     auditLogs30d,
     theme: tenant?.theme?.name ?? null,
-    plan: tenant?.plan?.name ?? null,
     clerkConnected: Boolean(tenant?.clerkOrgId),
   };
 }

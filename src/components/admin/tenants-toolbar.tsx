@@ -5,11 +5,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { RotateCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import type { PlanOption } from "@/lib/db/queries/tenants";
 
 /**
  * Barre d'outils de la liste des boutiques : recherche (nom, slug,
- * email du propriétaire) + filtres statut/plan, tous pilotés par l'URL
+ * email du propriétaire) + filtre statut, tous pilotés par l'URL
  * (navigation douce, aucune seizure de page).
  */
 
@@ -24,15 +23,11 @@ const STATUS_OPTIONS = [
 type TenantsToolbarProps = {
   search: string;
   status: string;
-  plan: string;
-  plans: PlanOption[];
 };
 
 export function TenantsToolbar({
   search,
   status,
-  plan,
-  plans,
 }: TenantsToolbarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -60,7 +55,7 @@ export function TenantsToolbar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, search, searchParams]);
 
-  const hasFilters = Boolean(search || status !== "ALL" || plan !== "ALL");
+  const hasFilters = Boolean(search || status !== "ALL");
 
   return (
     <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -97,27 +92,13 @@ export function TenantsToolbar({
           ))}
         </Select>
 
-        <Select
-          value={plan}
-          aria-label="Filtrer par plan"
-          className="w-full sm:w-44"
-          onChange={(event) => apply({ plan: event.target.value })}
-        >
-          <option value="ALL">Tous les plans</option>
-          {plans.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.name}
-            </option>
-          ))}
-        </Select>
-
         {hasFilters && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setQuery("");
-              apply({ search: undefined, status: undefined, plan: undefined });
+              apply({ search: undefined, status: undefined });
             }}
           >
             <RotateCcw className="size-3.5" aria-hidden />

@@ -158,12 +158,6 @@ export function TenantsTable({
         cell: ({ getValue }) => <TenantStatusBadge status={getValue<string>()} />,
       },
       {
-        id: "plan",
-        accessorFn: (row) => row.plan?.name ?? "—",
-        header: "Plan",
-        enableSorting: false,
-      },
-      {
         accessorKey: "createdAt",
         header: "Créée le",
         cell: ({ getValue }) => (

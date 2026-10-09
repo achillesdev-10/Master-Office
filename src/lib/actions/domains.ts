@@ -11,6 +11,7 @@ import { addDomainSchema, getSslTarget } from "@/lib/validators/domain";
 import { flattenErrors } from "@/lib/validators/tenant";
 import { failure } from "@/lib/actions/types";
 import type { ActionResult } from "@/lib/actions/types";
+import { invalidateTenantCache } from "@/lib/tenant/provision";
 
 const idSchema = z.string().cuid("Identifiant invalide");
 
@@ -56,7 +57,7 @@ export async function addTenantDomain(input: unknown): Promise<ActionResult> {
 
     const tenant = await prisma.tenant.findFirst({
       where: { id: parsed.data.tenantId, deletedAt: null },
-      select: { id: true, name: true },
+      select: { id: true, name: true, slug: true },
     });
     if (!tenant) return failure("Boutique introuvable.");
 
@@ -79,6 +80,13 @@ export async function addTenantDomain(input: unknown): Promise<ActionResult> {
         verified: false,
       },
     });
+
+    // Invalide le cache Redis pour inclure le nouveau domaine
+    const allDomains = await prisma.tenantDomain.findMany({
+      where: { tenantId: tenant.id },
+      select: { domain: true },
+    });
+    await invalidateTenantCache(tenant.slug, allDomains.map((d) => d.domain));
 
     await logAction({
       action: "domain.add",
@@ -135,6 +143,13 @@ export async function removeTenantDomain(id: string): Promise<ActionResult> {
     }
 
     await prisma.tenantDomain.delete({ where: { id: domain.id } });
+
+    // Invalide le cache Redis pour retirer le domaine supprimé
+    const remainingDomains = await prisma.tenantDomain.findMany({
+      where: { tenantId: domain.tenantId },
+      select: { domain: true },
+    });
+    await invalidateTenantCache(domain.tenant.slug, remainingDomains.map((d) => d.domain));
 
     await logAction({
       action: "domain.remove",
@@ -237,10 +252,9 @@ export async function verifyDomain(id: string): Promise<ActionResult> {
 /**
  * Déclenche (ou relance) la génération du certificat SSL.
  *
- * TODO(prod) : brancher l'API Vercel —
- *   POST https://api.vercel.com/v6/domains/{domain}/... avec
- *   VERCEL_API_TOKEN. Tant que le token est absent, l'action se
- *   contente d'enregistrer la demande (statut PENDING).
+ * Pour l'instant, l'automatisation SSL n'est pas configurée.
+ * Cette fonction retourne un échec explicite au lieu de simuler un succès.
+ * L'intégration réelle (Vercel API ou autre provider) devra être ajoutée plus tard.
  */
 export async function requestSsl(id: string): Promise<ActionResult> {
   try {
@@ -259,35 +273,11 @@ export async function requestSsl(id: string): Promise<ActionResult> {
       return { success: true, message: `SSL déjà actif pour ${domain.domain}.` };
     }
 
-    // TODO(prod) : appel API Vercel ici (génération du certificat).
-    await prisma.tenantDomain.update({
-      where: { id: domain.id },
-      data: { sslStatus: SslStatus.PENDING },
-    });
-
-    await logAction({
-      action: "domain.ssl",
-      userId: admin.id,
-      tenantId: domain.tenantId,
-      entity: "Domain",
-      entityId: domain.id,
-      metadata: {
-        domainId: domain.id,
-        domain: domain.domain,
-        result: "requested",
-        from: domain.sslStatus,
-      },
-    });
-
-    revalidateDomain(domain.id, domain.tenantId);
-
-    const stubbed = !process.env.VERCEL_API_TOKEN;
-    return {
-      success: true,
-      message: `Demande SSL enregistrée pour ${domain.domain}.${
-        stubbed ? " (génération Vercel à connecter : VERCEL_API_TOKEN)" : ""
-      }`,
-    };
+    // L'automatisation SSL n'est pas encore implémentée.
+    // Ne pas modifier le statut ni prétendre qu'une demande a été faite.
+    return failure(
+      "Automatisation SSL non configurée. Intégration Vercel (ou autre provider) à connecter via VERCEL_API_TOKEN.",
+    );
   } catch (error) {
     console.error("[domains] demande SSL impossible", error);
     return failure("La demande de certificat a échoué.");

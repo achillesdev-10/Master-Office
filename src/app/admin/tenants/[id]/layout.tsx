@@ -51,8 +51,6 @@ export default async function TenantLayout({
             {" · "}
             Créée le{" "}
             {format(new Date(tenant.createdAt), "d MMMM yyyy", { locale: fr })}
-            {" · "}
-            {tenant.plan?.name ?? "Sans plan"}
             {tenant.theme ? ` · Thème ${tenant.theme.name}` : ""}
           </p>
         </div>

@@ -19,8 +19,6 @@ export type TenantListFilters = {
   /** Recherche libre : nom, slug, email du propriétaire */
   search?: string;
   status?: TenantStatusFilter;
-  /** planId Prisma, ou "ALL" */
-  plan?: string;
   page?: number;
   sort?: TenantSortField;
   dir?: SortDir;
@@ -33,7 +31,6 @@ export type TenantListItem = {
   status: TenantStatus;
   /** Domaine auto `${slug}.maboutique.com` ou premier domaine custom */
   primaryDomain: string;
-  plan: { id: string; name: string; slug: string } | null;
   /** Date de création au format ISO 8601 */
   createdAt: string;
 };
@@ -45,8 +42,6 @@ export type PaginatedTenants = {
   pageSize: number;
   pageCount: number;
 };
-
-export type PlanOption = { id: string; name: string; slug: string };
 
 function buildOrderBy(
   field: TenantSortField,
@@ -66,7 +61,7 @@ function buildOrderBy(
 
 /**
  * Liste paginée des boutiques (hors supprimées logiquement),
- * filtrable par recherche, statut et plan.
+ * filtrable par recherche et statut.
  */
 export async function getTenants(
   filters: TenantListFilters = {},
@@ -80,7 +75,6 @@ export async function getTenants(
     ...(filters.status && filters.status !== "ALL"
       ? { status: filters.status }
       : {}),
-    ...(filters.plan && filters.plan !== "ALL" ? { planId: filters.plan } : {}),
     ...(search
       ? {
           OR: [
@@ -116,7 +110,6 @@ export async function getTenants(
         slug: true,
         status: true,
         createdAt: true,
-        plan: { select: { id: true, name: true, slug: true } },
         domains: {
           orderBy: { createdAt: "asc" },
           select: { domain: true },
@@ -132,7 +125,6 @@ export async function getTenants(
     status: row.status,
     primaryDomain:
       row.domains[0]?.domain ?? `${row.slug}.${getRootDomain()}`,
-    plan: row.plan,
     createdAt: row.createdAt.toISOString(),
   }));
 
@@ -143,15 +135,6 @@ export async function getTenants(
     pageSize,
     pageCount: Math.max(1, Math.ceil(total / pageSize)),
   };
-}
-
-/** Options de plans pour le filtre de la liste. */
-export async function getPlanOptions(): Promise<PlanOption[]> {
-  const plans = await prisma.plan.findMany({
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, slug: true },
-  });
-  return plans;
 }
 
 /** Lookup de slug (utilisé par la vérification d'unicité en temps réel). */
@@ -179,7 +162,6 @@ export type TenantDetails = {
   contactCountry: string | null;
   createdAt: string;
   updatedAt: string;
-  plan: { id: string; name: string; slug: string } | null;
   theme: { id: string; name: string; slug: string } | null;
   domains: { id: string; domain: string; sslStatus: string }[];
 };
@@ -204,7 +186,6 @@ export async function getTenantById(id: string): Promise<TenantDetails | null> {
       contactCountry: true,
       createdAt: true,
       updatedAt: true,
-      plan: { select: { id: true, name: true, slug: true } },
       theme: { select: { id: true, name: true, slug: true } },
       domains: {
         orderBy: { createdAt: "asc" },

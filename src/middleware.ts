@@ -5,12 +5,15 @@ import { getTenantSlugByHost } from "@/lib/tenant/provision";
 /**
  * Middleware (module 14 + authentification).
  *
- * 1. Résolution de sous-domaine : `{slug}.{NEXT_PUBLIC_ROOT_DOMAIN}/**`
+ * 1. Résolution de domaine : cherche le tenant dans Redis par host exact.
+ *    Supporte :
+ *    - Sous-domaines plateforme : `{slug}.{NEXT_PUBLIC_ROOT_DOMAIN}`
+ *    - www + sous-domaine plateforme : `www.{slug}.{NEXT_PUBLIC_ROOT_DOMAIN}`
+ *    - Domaines personnalisés : `boutique.ci`, `www.boutique.ci`
  *    → réécriture vers `/store/{slug}/**` avec header `x-tenant-slug`.
  *    Côté Edge uniquement Redis (REST Upstash) : jamais Prisma.
- *    Si Redis est absent, le slug est déduit du sous-domaine et la
- *    validation finale (statut, existence) est faite par la layout
- *    `/store/[slug]` via `resolveTenant()`.
+ *    Si Redis est absent, la validation finale (statut, existence) est faite
+ *    par la layout `/store/[slug]` via `resolveTenant()`.
  * 2. Protection Clerk du back-office `/admin/**` (page racine uniquement).
  */
 
@@ -41,14 +44,21 @@ function isTenantPassthrough(pathname: string): boolean {
 
 /**
  * Extrait le slug boutique depuis le host (ou le lit dans Redis).
- * `null` = host racine / réservé → pas de réécriture.
+ * `null` = host racine / réservé / inconnu → pas de réécriture.
  */
 async function getTenantSlugFromHost(
   req: NextRequest,
 ): Promise<string | null> {
-  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "maboutique.com";
   const host = (req.headers.get("host") ?? "").toLowerCase().split(":")[0] ?? "";
-  if (!host || !host.endsWith(`.${rootDomain}`)) return null;
+  if (!host) return null;
+
+  // D'abord, essaie de résoudre via Redis (inclut domaines custom provisionnés)
+  const fromRedis = await getTenantSlugByHost(host);
+  if (fromRedis) return fromRedis;
+
+  // Fallback : si pas dans Redis, essaie de déduire depuis sous-domaine plateforme
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "maboutique.com";
+  if (!host.endsWith(`.${rootDomain}`)) return null;
 
   const prefix = host.slice(0, -(rootDomain.length + 1));
   if (!prefix) return null;
@@ -56,11 +66,11 @@ async function getTenantSlugFromHost(
   const label = prefix.split(".")[0] ?? "";
   if (!label || RESERVED_SUBDOMAINS.has(label)) return null;
 
-  return (await getTenantSlugByHost(host)) ?? label;
+  return label;
 }
 
 export default clerkMiddleware(async (auth, req) => {
-  // 1. Sous-domaine boutique → réécriture /store/{slug}/…
+  // 1. Domaine boutique (plateforme ou custom) → réécriture /store/{slug}/…
   const tenantSlug = await getTenantSlugFromHost(req);
   if (tenantSlug && !isTenantPassthrough(req.nextUrl.pathname)) {
     const url = req.nextUrl.clone();

@@ -95,14 +95,6 @@ export default async function TenantStatsPage({
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <li className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
             <span className="flex items-center gap-2 text-muted-foreground">
-              <Boxes className="size-4" aria-hidden /> Plan
-            </span>
-            <Badge variant={tenant.plan ? "success" : "secondary"}>
-              {tenant.plan?.name ?? "Aucun"}
-            </Badge>
-          </li>
-          <li className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
-            <span className="flex items-center gap-2 text-muted-foreground">
               <ShieldCheck className="size-4" aria-hidden /> Clerk
             </span>
             <Badge variant={stats.clerkConnected ? "success" : "warning"}>

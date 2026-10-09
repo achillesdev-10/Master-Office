@@ -3,11 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  CreditCard,
   Globe,
   LayoutDashboard,
   LifeBuoy,
-  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
@@ -29,8 +27,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Boutiques", href: "/admin/tenants", icon: Store },
   { label: "Domaines", href: "/admin/domains", icon: Globe },
   { label: "Utilisateurs", href: "/admin/users", icon: Users },
-  { label: "Abonnements", href: "/admin/subscriptions", icon: CreditCard },
-  { label: "Thèmes", href: "/admin/themes", icon: Palette },
   { label: "Journal d'activité", href: "/admin/audit-logs", icon: ScrollText },
   { label: "Support", href: "/admin/support", icon: LifeBuoy },
   { label: "Paramètres", href: "/admin/settings", icon: Settings },

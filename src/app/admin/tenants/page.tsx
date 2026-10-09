@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Store, Plus } from "lucide-react";
 import { TenantStatus } from "@prisma/client";
 import {
-  getPlanOptions,
   getTenants,
   TENANT_SORT_FIELDS,
   type SortDir,
@@ -65,7 +64,7 @@ function EmptyState({
         </h3>
         <p className="mt-1 max-w-sm text-sm text-muted-foreground">
           {hasFilters
-            ? "Essayez d’élargir la recherche ou de réinitialiser les filtres."
+            ? "Essayez d'élargir la recherche ou de réinitialiser les filtres."
             : "Créez votre première boutique pour lancer une nouvelle enseigne sur la plateforme."}
         </p>
       </div>
@@ -92,17 +91,13 @@ export default async function TenantsPage({
 
   const search = first(sp.search) ?? "";
   const status = parseStatus(first(sp.status));
-  const plan = first(sp.plan) ?? "ALL";
   const page = parsePage(first(sp.page));
   const sort = parseSort(first(sp.sort));
   const dir: SortDir = first(sp.dir) === "asc" ? "asc" : "desc";
 
-  const [result, plans] = await Promise.all([
-    getTenants({ search, status, plan, page, sort, dir }),
-    getPlanOptions(),
-  ]);
+  const result = await getTenants({ search, status, page, sort, dir });
 
-  const hasFilters = Boolean(search || status !== "ALL" || plan !== "ALL");
+  const hasFilters = Boolean(search || status !== "ALL");
 
   return (
     <div className="space-y-6">
@@ -126,8 +121,6 @@ export default async function TenantsPage({
       <TenantsToolbar
         search={search}
         status={status}
-        plan={plan}
-        plans={plans}
       />
 
       <TenantsTable

@@ -28,7 +28,6 @@ export type TenantProvisioning = {
   logoUrl: string | null;
   description: string | null;
   themeId: string | null;
-  planId: string | null;
   domains: string[];
   rootDomain: string;
 };
@@ -128,7 +127,7 @@ async function restDel(keys: string[]): Promise<void> {
   }
 }
 
-/** Écrit la config du tenant + le mappage host → slug. */
+/** Écrit la config du tenant + le mappage host → slug pour tous les domaines. */
 export async function provisionTenant(
   config: TenantProvisioning,
 ): Promise<boolean> {
@@ -136,10 +135,11 @@ export async function provisionTenant(
 
   try {
     await restSet(tenantKey(config.slug), JSON.stringify(config));
-    const hosts = [
-      `${config.slug}.${config.rootDomain}`,
-      `www.${config.slug}.${config.rootDomain}`,
-    ];
+    // Provisionne tous les domaines du tenant (plateforme + custom + www)
+    const hosts = config.domains.flatMap((domain) => [
+      domain,
+      `www.${domain}`,
+    ]);
     await Promise.all(
       hosts.map((host) =>
         restSet(tenantHostKey(host), JSON.stringify(config.slug), HOST_CACHE_TTL),
@@ -155,16 +155,27 @@ export async function provisionTenant(
 /** Invalide les entrées Redis d'un tenant (après mutation). */
 export async function invalidateTenantCache(
   slug: string,
+  domains?: string[],
   rootDomain: string = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "maboutique.com",
 ): Promise<boolean> {
   if (!isRedisConfigured()) return false;
 
   try {
-    await restDel([
+    const hostsToInvalidate = [
       tenantKey(slug),
       tenantHostKey(`${slug}.${rootDomain}`),
       tenantHostKey(`www.${slug}.${rootDomain}`),
-    ]);
+    ];
+
+    // Invalide aussi les domaines custom s'ils sont fournis
+    if (domains && domains.length > 0) {
+      for (const domain of domains) {
+        hostsToInvalidate.push(tenantHostKey(domain));
+        hostsToInvalidate.push(tenantHostKey(`www.${domain}`));
+      }
+    }
+
+    await restDel(hostsToInvalidate);
     return true;
   } catch (error) {
     console.error("[provision] invalidation Redis impossible", error);

@@ -4,24 +4,23 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
-  CreditCard,
   Globe,
   ShoppingBag,
   Store,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import {
-  getActiveTenants,
   getDashboardAlerts,
-  getMonthlyRecurringRevenue,
-  getOrdersThisMonth,
+  getGlobalStats,
   getRecentTenants,
   getTenantsGrowth,
   getTotalTenants,
+  getTenantStatusCounts,
 } from "@/lib/db/queries/dashboard";
-import { formatCurrency, formatNumber } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KpiCard, KpiCardSkeleton } from "@/components/admin/kpi-card";
 import { TenantsGrowthChart } from "@/components/admin/tenants-growth-chart";
@@ -93,16 +92,14 @@ function Panel({
 // ======================== SECTIONS ===============================
 
 async function KpiSection() {
-  const [total, activeTenants, orders, mrr] = await Promise.all([
+  const [total, statusCounts] = await Promise.all([
     getTotalTenants(),
-    getActiveTenants(),
-    getOrdersThisMonth(),
-    getMonthlyRecurringRevenue(),
+    getTenantStatusCounts(),
   ]);
 
   const activeShare =
     total.total > 0
-      ? `${formatNumber(Math.round((activeTenants / total.total) * 100))} % du parc`
+      ? `${formatNumber(Math.round((statusCounts.active / total.total) * 100))} % du parc`
       : undefined;
 
   return (
@@ -115,21 +112,66 @@ async function KpiSection() {
       />
       <KpiCard
         title="Boutiques actives"
-        value={formatNumber(activeTenants)}
+        value={formatNumber(statusCounts.active)}
         icon={CheckCircle2}
         hint={activeShare}
       />
       <KpiCard
-        title="Commandes du mois"
-        value={formatNumber(orders)}
+        title="Boutiques en préparation"
+        value={formatNumber(statusCounts.draft)}
         icon={ShoppingBag}
-        hint="Module commandes à venir"
       />
       <KpiCard
-        title="Revenus récurrents"
-        value={formatCurrency(mrr)}
-        icon={CreditCard}
-        hint="MRR · plans actifs"
+        title="Boutiques avec problème"
+        value={formatNumber(statusCounts.withIssues)}
+        icon={AlertTriangle}
+        hint={statusCounts.suspended > 0 ? `${statusCounts.suspended} suspendue(s)` : undefined}
+      />
+    </div>
+  );
+}
+
+async function SecondaryKpiSection() {
+  const globalStats = await getGlobalStats();
+
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <KpiCard
+        title="Domaines gérés"
+        value={formatNumber(globalStats.totalDomains)}
+        icon={Globe}
+        hint={
+          globalStats.domainsExpiring7Days > 0
+            ? `${globalStats.domainsExpiring7Days} expirent sous 7j`
+            : globalStats.domainsExpiring30Days > 0
+            ? `${globalStats.domainsExpiring30Days} expirent sous 30j`
+            : undefined
+        }
+      />
+      <KpiCard
+        title="Commandes du mois"
+        value={formatNumber(0)}
+        icon={ShoppingBag}
+        hint="Module commandes non disponible"
+      />
+      <KpiCard
+        title="Activité récente (30j)"
+        value={formatNumber(globalStats.recentActivityCount)}
+        icon={Users}
+      />
+      <KpiCard
+        title="Santé globale"
+        value={
+          globalStats.tenantsWithIssues === 0
+            ? "OK"
+            : `${globalStats.tenantsWithIssues} à surveiller`
+        }
+        icon={globalStats.tenantsWithIssues === 0 ? CheckCircle2 : AlertTriangle}
+        hint={
+          globalStats.tenantsWithIssues > 0
+            ? "Voir alertes ci-dessous"
+            : "Tout est opérationnel"
+        }
       />
     </div>
   );
@@ -230,6 +272,15 @@ async function AlertsSection() {
       linkLabel: "Vérifier les domaines",
     });
   }
+  if (alerts.domainsExpiringSoon > 0) {
+    items.push({
+      id: "domains-expiring",
+      icon: AlertTriangle,
+      message: `${formatNumber(alerts.domainsExpiringSoon)} domaine(s) expirant dans les 30 prochains jours.`,
+      href: "/admin/domains?expiring=30",
+      linkLabel: "Voir les expirations",
+    });
+  }
 
   if (items.length === 0) {
     return (
@@ -238,7 +289,7 @@ async function AlertsSection() {
         <div>
           <p className="text-sm font-medium">Aucune alerte</p>
           <p className="text-xs opacity-80">
-            Aucune boutique suspendue et tous les domaines sont vérifiés.
+            Aucune boutique suspendue, tous les domaines sont vérifiés et aucune expiration proche.
           </p>
         </div>
       </div>
@@ -321,12 +372,16 @@ export default function DashboardPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-sm capitalize text-muted-foreground">
-          Vue d&apos;ensemble de la plateforme · {today}
+          Centre de contrôle du réseau de boutiques · {today}
         </p>
       </header>
 
       <Suspense fallback={<KpiGridFallback />}>
         <KpiSection />
+      </Suspense>
+
+      <Suspense fallback={<KpiGridFallback />}>
+        <SecondaryKpiSection />
       </Suspense>
 
       <Suspense fallback={<PanelFallback title="Croissance des boutiques" />}>
@@ -341,7 +396,7 @@ export default function DashboardPage() {
         </div>
         <Panel
           title="Alertes"
-          description="Boutiques suspendues et domaines non vérifiés"
+          description="Boutiques suspendues, domaines non vérifiés, expirations proches"
         >
           <Suspense fallback={<AlertsFallback />}>
             <AlertsSection />

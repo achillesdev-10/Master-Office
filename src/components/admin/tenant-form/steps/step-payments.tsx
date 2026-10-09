@@ -1,4 +1,4 @@
-import { CreditCard } from "lucide-react";
+import { CreditCard, Smartphone, Banknote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   PAYMENT_PROVIDERS,
@@ -17,10 +17,45 @@ export function StepPayments({ values, onChange, errors }: StepProps) {
     onChange({ providers: next });
   };
 
+  const getIcon = (provider: PaymentProvider) => {
+    switch (provider) {
+      case "orange_money":
+      case "mtn_money":
+      case "moov_money":
+      case "wave":
+        return <Smartphone aria-hidden className="size-3.5" />;
+      case "cod":
+        return <Banknote aria-hidden className="size-3.5" />;
+      case "bank_transfer":
+        return <CreditCard aria-hidden className="size-3.5" />;
+      default:
+        return <CreditCard aria-hidden className="size-3.5" />;
+    }
+  };
+
+  const getDescription = (provider: PaymentProvider) => {
+    switch (provider) {
+      case "orange_money":
+        return "Orange Money (CI)";
+      case "mtn_money":
+        return "MTN Mobile Money (CI)";
+      case "moov_money":
+        return "Moov Money (CI)";
+      case "wave":
+        return "Wave (CI)";
+      case "cod":
+        return "Paiement en espèces à la livraison";
+      case "bank_transfer":
+        return "Virement bancaire (vérification manuelle)";
+      default:
+        return "Paiement en ligne";
+    }
+  };
+
   return (
     <Field
       label="Moyens de paiement activés"
-      htmlFor="provider-stripe"
+      htmlFor="provider-orange_money"
       error={errors.providers}
       hint="Les clés API seront configurables ensuite (onglet Paiements)."
     >
@@ -45,15 +80,11 @@ export function StepPayments({ values, onChange, errors }: StepProps) {
               />
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <CreditCard aria-hidden className="size-3.5" />
+                  {getIcon(provider)}
                   {PAYMENT_PROVIDER_LABELS[provider]}
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  {provider === "cod"
-                    ? "Paiement en espèces à la livraison"
-                    : provider === "wire"
-                      ? "Virement bancaire (vérification manuelle)"
-                      : "Paiement en ligne par carte"}
+                  {getDescription(provider)}
                 </span>
               </span>
             </label>

@@ -69,7 +69,6 @@ export async function resolveTenant(
       logoUrl: true,
       description: true,
       themeId: true,
-      planId: true,
       domains: { select: { domain: true }, orderBy: { createdAt: "asc" } },
     },
   });
@@ -91,7 +90,6 @@ export async function resolveTenant(
     logoUrl: row.logoUrl,
     description: row.description,
     themeId: row.themeId,
-    planId: row.planId,
     domains: row.domains.map((domain) => domain.domain),
     rootDomain: getRootDomain(),
   };
