@@ -18,6 +18,7 @@ import { getTenantSlugByHost } from "@/lib/tenant/provision";
  */
 
 const isProtectedRoute = createRouteMatcher(["/admin(.*)"]);
+const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
 
 /** Préfixes réservés : jamais interprétés comme un slug de boutique. */
 const RESERVED_SUBDOMAINS = new Set([
@@ -37,6 +38,8 @@ function isTenantPassthrough(pathname: string): boolean {
     pathname === "/suspended" ||
     pathname.startsWith("/suspended/") ||
     pathname === "/login" ||
+    pathname.startsWith("/sign-in") ||
+    pathname.startsWith("/sign-up") ||
     pathname.startsWith("/store") ||
     pathname.startsWith("/api")
   );
@@ -70,6 +73,11 @@ async function getTenantSlugFromHost(
 }
 
 export default clerkMiddleware(async (auth, req) => {
+  // Allow public routes (sign-in, sign-up) to pass through without auth
+  if (isPublicRoute(req)) {
+    return NextResponse.next();
+  }
+
   // 1. Domaine boutique (plateforme ou custom) → réécriture /store/{slug}/…
   const tenantSlug = await getTenantSlugFromHost(req);
   if (tenantSlug && !isTenantPassthrough(req.nextUrl.pathname)) {
@@ -87,7 +95,7 @@ export default clerkMiddleware(async (auth, req) => {
     const { userId } = await auth();
 
     if (!userId) {
-      const loginUrl = new URL("/login", req.url);
+      const loginUrl = new URL("/sign-in", req.url);
       loginUrl.searchParams.set(
         "redirect_url",
         req.nextUrl.pathname + req.nextUrl.search,
@@ -105,5 +113,7 @@ export const config = {
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     // API (webhooks inclus — laissés publics, vérifiés par svix)
     "/(api|trpc)(.*)",
+    // Clerk
+    "/__clerk/:path*",
   ],
 };
