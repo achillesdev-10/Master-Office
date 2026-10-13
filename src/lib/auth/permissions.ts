@@ -1,3 +1,5 @@
+"use server";
+
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { Role, type User } from "@prisma/client";
 import prisma from "@/lib/db/prisma";
@@ -64,8 +66,6 @@ export async function getCurrentUser(): Promise<User | null> {
   return user;
 }
 
-import { redirect } from "next/navigation";
-
 /**
  * Exige un Super Admin : redirect si non connecté, profil absent,
  * ou rôle différent de SUPER_ADMIN.
@@ -75,14 +75,17 @@ export async function requireSuperAdmin(): Promise<User> {
   const user = await getCurrentUser();
 
   if (!user) {
+    const { redirect } = await import("next/navigation");
     redirect("/login");
   }
 
   if (user.role !== Role.SUPER_ADMIN) {
+    const { redirect } = await import("next/navigation");
     redirect("/unauthorized");
   }
 
   if (user.disabled) {
+    const { redirect } = await import("next/navigation");
     redirect("/unauthorized");
   }
 
@@ -97,10 +100,12 @@ export async function requireTenantAccess(tenantId: string): Promise<User> {
   const user = await getCurrentUser();
 
   if (!user) {
+    const { redirect } = await import("next/navigation");
     redirect("/login");
   }
 
   if (user.disabled) {
+    const { redirect } = await import("next/navigation");
     redirect("/unauthorized");
   }
 
@@ -115,15 +120,9 @@ export async function requireTenantAccess(tenantId: string): Promise<User> {
   });
 
   if (!membership) {
+    const { redirect } = await import("next/navigation");
     redirect("/unauthorized");
   }
 
   return user;
-}
-
-/**
- * Vérifie qu'un utilisateur possède un rôle donné.
- */
-export function hasRole(user: Pick<User, "role">, role: Role): boolean {
-  return user.role === role;
 }

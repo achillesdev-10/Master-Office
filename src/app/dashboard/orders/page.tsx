@@ -1,77 +1,60 @@
-"use client";
-
-import { useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Search, Filter, ChevronLeft, ChevronRight, Eye, Truck, X, RotateCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { getOrdersByTenant } from "@/lib/db/queries/tenant-detail";
+import { updateOrderStatus, cancelOrder } from "@/lib/actions/storefront/orders";
+import { requireTenantAccess, getCurrentUser } from "@/lib/auth/permissions";
+import { getTenantMembers } from "@/lib/db/queries/tenant-detail";
 
-interface Order {
-  id: string;
-  customerName: string;
-  customerPhone: string;
-  total: number;
-  status: "NEW" | "CONFIRMED" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELLED";
-  createdAt: string;
-  itemCount: number;
-}
-
-export default function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [page, setPage] = useState(1);
-  const pageSize = 10;
-
-  const mockOrders: Order[] = [
-    {
-      id: "ord_1",
-      customerName: "Jean Kouassi",
-      customerPhone: "07 01 02 03 04",
-      total: 125000,
-      status: "NEW",
-      createdAt: "2024-01-15T10:30:00Z",
-      itemCount: 2,
-    },
-    {
-      id: "ord_2",
-      customerName: "Marie Dupont",
-      customerPhone: "05 06 07 08 09",
-      total: 89000,
-      status: "CONFIRMED",
-      createdAt: "2024-01-14T14:20:00Z",
-      itemCount: 1,
-    },
-    {
-      id: "ord_3",
-      customerName: "Pierre Martin",
-      customerPhone: "01 02 03 04 05",
-      total: 210000,
-      status: "PROCESSING",
-      createdAt: "2024-01-13T09:15:00Z",
-      itemCount: 3,
-    },
-  ];
-
-  setTimeout(() => {
-    setOrders(mockOrders);
-    setLoading(false);
-  }, 500);
-
-  const filteredOrders = orders.filter((o) => {
+async function getOrdersData(tenantId: string, page: number, pageSize: number, search: string, statusFilter: string) {
+  const result = await getOrdersByTenant(tenantId, { pageSize: pageSize * page });
+  
+  let filteredOrders = result.items.filter((o) => {
     const matchesSearch = o.id.toLowerCase().includes(search.toLowerCase()) ||
       o.customerName.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || o.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  const totalPages = Math.ceil(filteredOrders.length / pageSize);
-  const paginatedOrders = filteredOrders.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.ceil(filteredOrders.length / 10);
+  const paginatedOrders = filteredOrders.slice((page - 1) * 10, page * 10);
 
-  const statusColors: Record<Order["status"], { bg: string; text: string }> = {
+  return { orders: paginatedOrders, totalPages, total: filteredOrders.length };
+}
+
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string; search?: string; status?: string }>;
+}) {
+  const user = await getCurrentUser();
+  
+  if (!user) {
+    return null;
+  }
+
+  const memberships = await getTenantMembers(user.id);
+  const primaryMembership = memberships.find((m) => m.role === "ADMIN") || memberships[0];
+  if (!primaryMembership) {
+    return null;
+  }
+  const tenantId = primaryMembership.tenantId;
+
+  await requireTenantAccess(tenantId);
+
+  const resolvedSearchParams = await searchParams;
+  const page = parseInt(resolvedSearchParams.page || "1", 10);
+  const search = resolvedSearchParams.search || "";
+  const statusFilter = resolvedSearchParams.status || "all";
+
+  const { orders, totalPages, total } = await getOrdersData(tenantId, page, 10, search, statusFilter);
+
+  const statusColors: Record<string, { bg: string; text: string }> = {
     NEW: { bg: "bg-blue-100", text: "text-blue-700" },
     CONFIRMED: { bg: "bg-green-100", text: "text-green-700" },
     PROCESSING: { bg: "bg-purple-100", text: "text-purple-700" },
@@ -80,7 +63,7 @@ export default function OrdersPage() {
     CANCELLED: { bg: "bg-red-100", text: "text-red-700" },
   };
 
-  const statusLabels: Record<Order["status"], string> = {
+  const statusLabels: Record<string, string> = {
     NEW: "Nouvelle",
     CONFIRMED: "Confirmée",
     PROCESSING: "En préparation",
@@ -89,12 +72,18 @@ export default function OrdersPage() {
     CANCELLED: "Annulée",
   };
 
-  if (loading) {
-    return (
-      <div className="p-8 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-      </div>
-    );
+  async function handleStatusUpdate(orderId: string, newStatus: string) {
+    const result = await updateOrderStatus({ id: orderId, tenantId, status: newStatus as any });
+    if (!result.success) {
+      // Could show toast here if needed
+    }
+  }
+
+  async function handleCancel(orderId: string) {
+    const result = await cancelOrder(tenantId, orderId);
+    if (!result.success) {
+      // Could show toast here
+    }
   }
 
   return (
@@ -110,15 +99,14 @@ export default function OrdersPage() {
         <div className="relative flex-1">
           <Input
             placeholder="Rechercher commande, client..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            defaultValue={searchParams.search || ""}
             className="pl-10"
           />
         </div>
         <div className="flex gap-2">
           <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            defaultValue={statusFilter}
+            onChange={(e) => window.location.href = `?page=1&search=${encodeURIComponent(searchParams.search || "")}&status=${e.target.value}`}
             className="rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="all">Tous les statuts</option>
@@ -150,7 +138,7 @@ export default function OrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredOrders.map((order) => {
+              {orders.map((order) => {
                 const colors = statusColors[order.status];
                 return (
                   <tr key={order.id} className="border-b last:border-b-0 hover:bg-muted/50">
@@ -182,18 +170,20 @@ export default function OrdersPage() {
                         <Link href={`/dashboard/orders/${order.id}`} className="p-2 text-muted-foreground hover:text-primary hover:bg-muted rounded-lg" title="Voir détails">
                           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542 7-4.477 0-8.268-2.943-9.542 7z" /></svg>
                         </Link>
-                        {order.status === "NEW" && (
-                          <Button variant="outline" size="sm" onClick={() => { /* Confirmer */ }}>
-                            Confirmer
-                          </Button>
-                        )}
-                        {order.status === "CONFIRMED" && (
-                          <Button variant="outline" size="sm" onClick={() => { /* Marquer expédiée */ }}>
-                            <Truck className="size-3.5 mr-1" /> Expédier
-                          </Button>
-                        )}
+                        <select
+                          value={order.status}
+                          onChange={(e) => handleStatusUpdate(order.id, e.target.value)}
+                          className={`px-2 py-1 text-xs rounded border ${statusColors[order.status]?.bg} ${statusColors[order.status]?.text}`}
+                        >
+                          <option value="NEW">Nouvelle</option>
+                          <option value="CONFIRMED">Confirmée</option>
+                          <option value="PROCESSING">En préparation</option>
+                          <option value="SHIPPED">Expédiée</option>
+                          <option value="DELIVERED">Livrée</option>
+                          <option value="CANCELLED">Annulée</option>
+                        </select>
                         {["NEW", "CONFIRMED", "PROCESSING"].includes(order.status) && (
-                          <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => { /* Annuler */ }}>
+                          <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleCancel(order.id)}>
                             <X className="size-3.5 mr-1" /> Annuler
                           </Button>
                         )}
@@ -207,16 +197,16 @@ export default function OrdersPage() {
         </div>
 
         {/* Pagination */}
-        {filteredOrders.length > pageSize && (
+        {totalPages > 1 && (
           <div className="flex items-center justify-between border-t px-4 py-3">
             <p className="text-sm text-muted-foreground">
-              Page {page} sur {Math.ceil(filteredOrders.length / pageSize)} — {filteredOrders.length} commande{filteredOrders.length > 1 ? "s" : ""}
+              Page {page} sur {totalPages} — {total} commande{total > 1 ? "s" : ""}
             </p>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+              <Button variant="outline" size="sm" disabled={page === 1} onClick={() => window.location.href = `?page=${page - 1}&search=${encodeURIComponent(search)}&status=${statusFilter}`}>
                 <ChevronLeft className="size-4" />
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(Math.ceil(filteredOrders.length / pageSize), p + 1))} disabled={page === Math.ceil(filteredOrders.length / pageSize)}>
+              <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => window.location.href = `?page=${page + 1}&search=${encodeURIComponent(search)}&status=${statusFilter}`}>
                 <ChevronRight className="size-4" />
               </Button>
             </div>
@@ -226,3 +216,35 @@ export default function OrdersPage() {
     </div>
   );
 }
+
+async function handleStatusUpdate(orderId: string, newStatus: string) {
+  const result = await updateOrderStatus({ id: orderId, tenantId, status: newStatus as any });
+  if (!result.success) {
+    // Could show toast here if needed
+  }
+}
+
+async function handleCancel(orderId: string) {
+  const result = await cancelOrder(tenantId, orderId);
+  if (!result.success) {
+    // Could show toast here
+  }
+}
+
+const statusColors: Record<string, { bg: string; text: string }> = {
+  NEW: { bg: "bg-blue-100", text: "text-blue-700" },
+  CONFIRMED: { bg: "bg-green-100", text: "text-green-700" },
+  PROCESSING: { bg: "bg-purple-100", text: "text-purple-700" },
+  SHIPPED: { bg: "bg-amber-100", text: "text-amber-700" },
+  DELIVERED: { bg: "bg-emerald-100", text: "text-emerald-700" },
+  CANCELLED: { bg: "bg-red-100", text: "text-red-700" },
+};
+
+const statusLabels: Record<string, string> = {
+  NEW: "Nouvelle",
+  CONFIRMED: "Confirmée",
+  PROCESSING: "En préparation",
+  SHIPPED: "Expédiée",
+  DELIVERED: "Livrée",
+  CANCELLED: "Annulée",
+};

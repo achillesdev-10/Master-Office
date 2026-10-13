@@ -1,5 +1,7 @@
 "use client";
 
+"use client";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Loader2, Upload, Image as ImageIcon, Plus, Trash2, Tag } from "lucide-react";
@@ -12,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+import { createProduct } from "@/lib/actions/storefront/products";
 
 interface ProductForm {
   name: string;
@@ -97,10 +100,35 @@ export default function NewProductPage() {
 
     setSaving(true);
     try {
-      // TODO: Appel Server Action createProduct
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      toast.success("Produit créé avec succès");
-      router.push("/dashboard/products");
+      const result = await createProduct({
+        name: form.name,
+        slug: form.slug,
+        description: form.description,
+        shortDescription: form.shortDescription,
+        basePrice: form.basePrice,
+        compareAtPrice: form.compareAtPrice,
+        sku: form.sku,
+        categoryId: form.categoryId || null,
+        isActive: form.isActive,
+        isFeatured: form.isFeatured,
+        requiresShipping: form.requiresShipping,
+        trackInventory: form.trackInventory,
+        images: logoPreview,
+        variants: form.variants.map(v => ({
+          name: v.name,
+          price: v.price,
+          quantity: v.quantity,
+          sku: v.sku,
+          attributes: {},
+        })),
+      });
+
+      if (result.success) {
+        toast.success("Produit créé avec succès");
+        router.push("/dashboard/products");
+      } else {
+        toast.error(result.error || "Erreur lors de la création du produit");
+      }
     } catch {
       toast.error("Erreur lors de la création du produit");
     } finally {

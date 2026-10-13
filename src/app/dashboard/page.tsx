@@ -4,10 +4,11 @@ import Link from "next/link";
 import { Store, Package, ShoppingBag, Settings, ArrowRight, Plus, TrendingUp } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { requireTenantAccess } from "@/lib/auth/permissions";
+import { requireTenantAccess, getCurrentUser } from "@/lib/auth/permissions";
 import { getTenantById } from "@/lib/db/queries/tenants";
 import { getStorefrontProducts } from "@/lib/db/queries/storefront/products";
 import { getOrdersByTenant } from "@/lib/db/queries/tenant-detail";
+import { getTenantMembers } from "@/lib/db/queries/tenant-detail";
 
 async function getDashboardData(tenantId: string) {
   const [tenant, products, orders] = await Promise.all([
@@ -20,17 +21,35 @@ async function getDashboardData(tenantId: string) {
 }
 
 export default async function DashboardPage() {
-  // The tenantId is resolved by the layout via requireTenantAccess
-  // For now, we'll get it from the first available tenant membership
-  // In a real app, this would come from the layout context
-  const tenantId = "default"; // Placeholder - actual implementation would get this from context
+  const user = await getCurrentUser();
   
+  if (!user) {
+    return null;
+  }
+
+  // Récupère les memberships de l'utilisateur
+  const memberships = await getTenantMembers(user.id);
+  
+  if (memberships.length === 0) {
+    return null;
+  }
+
+  // Pour l'instant, on prend le premier tenant (ADMIN ou MEMBER)
+  // Dans une vraie app, on aurait un sélecteur dans le shell
+  const primaryMembership = memberships.find((m) => m.role === "ADMIN") || memberships[0];
+  if (!primaryMembership) {
+    return null;
+  }
+  const tenantId = primaryMembership.tenantId;
+
   await requireTenantAccess(tenantId);
   const data = await getDashboardData(tenantId);
 
   if (!data.tenant) {
     return null;
   }
+
+  const currentTenant = memberships.find((m) => m.tenantId === tenantId);
 
   const stats = [
     {

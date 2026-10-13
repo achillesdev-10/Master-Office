@@ -7,92 +7,58 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { getStorefrontProducts } from "@/lib/db/queries/storefront/products";
+import { requireTenantAccess, getCurrentUser } from "@/lib/auth/permissions";
+import { getTenantMembers } from "@/lib/db/queries/tenant-detail";
 
-interface Product {
-  id: string;
-  name: string;
-  slug: string;
-  basePrice: number;
-  compareAtPrice: number | null;
-  isActive: boolean;
-  isFeatured: boolean;
-  category?: { name: string } | null;
-  variants: { quantity: number }[];
-  images: { url: string }[];
-  createdAt: string;
+async function getProductsData(tenantId: string, page: number, pageSize: number, search: string, statusFilter: string) {
+  const result = await getStorefrontProducts(tenantId, {
+    page,
+    pageSize,
+    search: search || undefined,
+  });
+  
+  return {
+    products: result.items,
+    total: result.total,
+    pageCount: result.pageCount,
+  };
 }
 
-export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [page, setPage] = useState(1);
+export default async function ProductsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string; search?: string; status?: string }>;
+}) {
+  const user = await getCurrentUser();
+  
+  if (!user) {
+    return null;
+  }
+
+  const memberships = await getTenantMembers(user.id);
+  const primaryMembership = memberships.find((m) => m.role === "ADMIN") || memberships[0];
+  if (!primaryMembership) {
+    return null;
+  }
+  const tenantId = primaryMembership.tenantId;
+
+  await requireTenantAccess(tenantId);
+
+  const resolvedSearchParams = await searchParams;
+  const page = parseInt(resolvedSearchParams.page || "1", 10);
+  const search = resolvedSearchParams.search || "";
+  const statusFilter = resolvedSearchParams.status || "all";
   const pageSize = 10;
 
-  const mockProducts: Product[] = [
-    {
-      id: "1",
-      name: "iPhone 15 Pro",
-      slug: "iphone-15-pro",
-      basePrice: 899000,
-      compareAtPrice: 999000,
-      isActive: true,
-      isFeatured: true,
-      category: { name: "Électronique" },
-      variants: [{ quantity: 10 }],
-      images: [{ url: "https://via.placeholder.com/150" }],
-      createdAt: "2024-01-15",
-    },
-    {
-      id: "2",
-      name: "Samsung Galaxy S24",
-      slug: "samsung-galaxy-s24",
-      basePrice: 799000,
-      compareAtPrice: null,
-      isActive: true,
-      isFeatured: false,
-      category: { name: "Électronique" },
-      variants: [{ quantity: 5 }],
-      images: [{ url: "https://via.placeholder.com/150" }],
-      createdAt: "2024-01-10",
-    },
-    {
-      id: "3",
-      name: "Nike Air Max",
-      slug: "nike-air-max",
-      basePrice: 129000,
-      compareAtPrice: 149000,
-      isActive: false,
-      isFeatured: false,
-      category: { name: "Chaussures" },
-      variants: [{ quantity: 0 }],
-      images: [{ url: "https://via.placeholder.com/150" }],
-      createdAt: "2024-01-05",
-    },
-  ];
-
-  setTimeout(() => {
-    setProducts(mockProducts);
-    setLoading(false);
-  }, 500);
-
+  const { products, total, pageCount } = await getProductsData(tenantId, page, pageSize, search, statusFilter);
+  
   const filteredProducts = products.filter((p) => {
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || (statusFilter === "active" ? p.isActive : !p.isActive);
     return matchesSearch && matchesStatus;
   });
-
-  const totalPages = Math.ceil(filteredProducts.length / pageSize);
-  const paginatedProducts = filteredProducts.slice((page - 1) * pageSize, page * pageSize);
-
-  if (loading) {
-    return (
-      <div className="p-8 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -114,15 +80,13 @@ export default function ProductsPage() {
         <div className="relative flex-1">
           <Input
             placeholder="Rechercher un produit..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            defaultValue={search}
             className="pl-10"
           />
         </div>
         <div className="flex gap-2">
           <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            defaultValue={statusFilter}
             className="rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="all">Tous</option>
@@ -130,6 +94,7 @@ export default function ProductsPage() {
             <option value="inactive">Inactifs</option>
           </select>
           <Button variant="outline" className="hidden sm:flex">
+            <Filter className="size-4" aria-hidden />
             Filtres
           </Button>
         </div>
@@ -167,7 +132,7 @@ export default function ProductsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedProducts.map((product) => {
+                  {filteredProducts.map((product) => {
                     const totalStock = product.variants.reduce((sum, v) => sum + v.quantity, 0);
                     return (
                       <tr key={product.id} className="border-b last:border-b-0 hover:bg-muted/50">
@@ -220,10 +185,10 @@ export default function ProductsPage() {
                               <Eye className="size-4" />
                             </Link>
                             <Link href={`/dashboard/products/${product.id}/edit`} className="p-2 text-muted-foreground hover:text-primary hover:bg-muted rounded-lg transition-colors" title="Modifier">
-                              <Edit className="size-4" />
+                              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                             </Link>
                             <button className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors" title="Supprimer">
-                              <Trash2 className="size-4" />
+                              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           </div>
                         </td>
@@ -237,16 +202,16 @@ export default function ProductsPage() {
         )}
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {pageCount > 1 && (
           <div className="flex items-center justify-between border-t px-4 py-3">
             <p className="text-sm text-muted-foreground">
-              Page {page} sur {totalPages} — {filteredProducts.length} produit{filteredProducts.length > 1 ? "s" : ""}
+              Page {page} sur {pageCount} — {filteredProducts.length} produit{filteredProducts.length > 1 ? "s" : ""}
             </p>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+              <Button variant="outline" size="sm" disabled={page === 1} onClick={() => window.location.href = `?page=${page - 1}&search=${encodeURIComponent(search)}&status=${statusFilter}`}>
                 <ChevronLeft className="size-4" />
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+              <Button variant="outline" size="sm" disabled={page === pageCount} onClick={() => window.location.href = `?page=${page + 1}&search=${encodeURIComponent(search)}&status=${statusFilter}`}>
                 <ChevronRight className="size-4" />
               </Button>
             </div>

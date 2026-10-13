@@ -1,75 +1,98 @@
-"use client";
-
-import { useState } from "react";
-import Link from "next/link";
-import { Plus, Search, Edit, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Plus, Search, Filter, ChevronLeft, ChevronRight, Edit, Trash2, Eye, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { getCategories } from "@/lib/db/queries/storefront/products";
+import { createCategory, updateCategory, deleteCategory } from "@/lib/actions/storefront/categories";
+import { requireTenantAccess, getCurrentUser } from "@/lib/auth/permissions";
+import { getTenantMembers } from "@/lib/db/queries/tenant-detail";
+import { toast } from "sonner";
 
-interface Category {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  parentId: string | null;
-  isActive: boolean;
-  productCount: number;
-  createdAt: string;
+async function getCategoriesData(tenantId: string) {
+  const result = await getCategories(tenantId);
+  return { categories: result };
 }
 
-export default function CategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const pageSize = 10;
+export default async function CategoriesPage() {
+  const user = await getCurrentUser();
+  
+  if (!user) {
+    return null;
+  }
 
-  // Mock data
-  const mockCategories: Category[] = [
-    {
-      id: "1",
-      name: "Électronique",
-      slug: "electronique",
-      description: "Smartphones, ordinateurs, accessoires",
-      parentId: null,
-      isActive: true,
-      productCount: 12,
-      createdAt: "2024-01-01",
-    },
-    {
-      id: "2",
-      name: "Smartphones",
-      slug: "smartphones",
-      description: "Téléphones intelligents",
-      parentId: "1",
-      isActive: true,
-      productCount: 8,
-      createdAt: "2024-01-02",
-    },
-    {
-      id: "3",
-      name: "Vêtements",
-      slug: "vetements",
-      description: "Mode homme, femme, enfant",
-      parentId: null,
-      isActive: true,
-      productCount: 25,
-      createdAt: "2024-01-03",
-    },
-  ];
+  const memberships = await getTenantMembers(user.id);
+  const primaryMembership = memberships.find((m) => m.role === "ADMIN") || memberships[0];
+  if (!primaryMembership) {
+    return null;
+  }
+  const tenantId = primaryMembership.tenantId;
 
-  setTimeout(() => {
-    setCategories(mockCategories);
-    setLoading(false);
-  }, 500);
+  await requireTenantAccess(tenantId);
 
-  const filteredCategories = categories.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const { categories } = await getCategoriesData(tenantId);
 
-  const totalPages = Math.ceil(filteredCategories.length / pageSize);
-  const paginatedCategories = filteredCategories.slice((page - 1) * pageSize, page * pageSize);
+  async function handleCreateCategory(formData: FormData) {
+    const name = formData.get("name") as string;
+    const slug = formData.get("slug") as string;
+    const description = formData.get("description") as string;
+    const parentId = formData.get("parentId") as string || null;
+    const isActive = formData.get("isActive") === "on";
+
+    const result = await createCategory({
+      tenantId,
+      name,
+      slug,
+      description,
+      parentId,
+      isActive,
+    });
+
+    if (result.success) {
+      toast.success("Catégorie créée avec succès");
+    } else {
+      toast.error(result.error || "Erreur lors de la création");
+    }
+  }
+
+  async function handleUpdateCategory(formData: FormData) {
+    const id = formData.get("id") as string;
+    const name = formData.get("name") as string;
+    const slug = formData.get("slug") as string;
+    const description = formData.get("description") as string;
+    const parentId = formData.get("parentId") as string || null;
+    const isActive = formData.get("isActive") === "on";
+
+    const result = await updateCategory({
+      id,
+      tenantId,
+      name,
+      slug,
+      description,
+      parentId,
+      isActive,
+    });
+
+    if (result.success) {
+      toast.success("Catégorie mise à jour");
+    } else {
+      toast.error(result.error || "Erreur lors de la mise à jour");
+    }
+  }
+
+  async function handleDeleteCategory(id: string) {
+    if (!confirm("Supprimer cette catégorie ? Cette action est irréversible.")) return;
+
+    const result = await deleteCategory({ id, tenantId });
+    if (result.success) {
+      toast.success("Catégorie supprimée");
+    } else {
+      toast.error(result.error || "Erreur lors de la suppression");
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -79,10 +102,8 @@ export default function CategoriesPage() {
           <p className="text-sm text-muted-foreground">Organisez vos produits par catégories</p>
         </div>
         <Button>
-          <Link href="/dashboard/categories/new">
-            <Plus className="size-4" aria-hidden />
-            Nouvelle catégorie
-          </Link>
+          <Plus className="size-4" aria-hidden />
+          Nouvelle catégorie
         </Button>
       </header>
 
@@ -90,25 +111,20 @@ export default function CategoriesPage() {
         <div className="relative flex-1 max-w-md">
           <Input
             placeholder="Rechercher une catégorie..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
           />
         </div>
       </div>
 
       <div className="rounded-lg border bg-card">
-        {loading ? (
-          <div className="p-8 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-          </div>
-        ) : filteredCategories.length === 0 ? (
+        {categories.length === 0 ? (
           <div className="p-8 text-center">
             <h3 className="text-lg font-medium">Aucune catégorie</h3>
             <p className="text-sm text-muted-foreground mt-1">Créez votre première catégorie pour organiser vos produits.</p>
-            <Link href="/dashboard/categories/new" className="mt-4 inline-block">
-              <Button><Plus className="size-4" /> Nouvelle catégorie</Button>
-            </Link>
+            <Button className="mt-4">
+              <Plus className="size-4" aria-hidden />
+              Nouvelle catégorie
+            </Button>
           </div>
         ) : (
           <>
@@ -124,7 +140,7 @@ export default function CategoriesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCategories.map((category) => (
+                  {categories.map((category) => (
                     <tr key={category.id} className="border-b last:border-b-0 hover:bg-muted/50">
                       <td className="px-4 py-3">
                         <Link href={`/dashboard/categories/${category.id}`} className="font-medium hover:underline">
@@ -146,12 +162,12 @@ export default function CategoriesPage() {
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <Link href={`/dashboard/categories/${category.id}`} className="p-2 text-muted-foreground hover:text-primary hover:bg-muted rounded-lg" title="Voir">
-                            <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                            <Eye className="size-4" />
                           </Link>
                           <Link href={`/dashboard/categories/${category.id}/edit`} className="p-2 text-muted-foreground hover:text-primary hover:bg-muted rounded-lg" title="Modifier">
                             <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                           </Link>
-                          <button className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg" title="Supprimer">
+                          <button className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg" title="Supprimer" onClick={() => handleDeleteCategory(category.id)}>
                             <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
                         </div>
