@@ -21,7 +21,7 @@ export default async function TenantDangerPage({
         </h2>
         <p className="text-sm text-muted-foreground">
           Ces actions sont auditées. La suppression est une suppression
-          logique : les données restent en base et l’action reste réversible.
+          logique : les données restent en base et l&apos;action reste réversible.
         </p>
       </div>
       <DangerZone tenant={tenant} />

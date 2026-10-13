@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { resolveTenant } from "@/lib/tenant/resolve";
+import { CartProvider } from "@/components/storefront/cart-context";
+import { CartIcon } from "@/components/storefront/cart-icon";
 
 /**
  * Layout de la boutique marchande (module 14) — rendue sur
@@ -43,39 +45,42 @@ export default async function StoreLayout({
   }
 
   return (
-    <div
-      className="flex min-h-screen flex-col bg-background text-foreground"
-      style={
-        {
-          "--store-primary": tenant.primaryColor ?? "#111827",
-        } as React.CSSProperties
-      }
-    >
-      <header className="border-b">
-        <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-3 px-4">
-          {tenant.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={tenant.logoUrl}
-              alt=""
-              className="size-8 rounded-md object-contain"
-            />
-          ) : (
-            <span
-              aria-hidden
-              className="size-8 rounded-md"
-              style={{ background: "var(--store-primary)" }}
-            />
-          )}
-          <span className="truncate font-semibold">{tenant.name}</span>
-        </div>
-      </header>
+    <CartProvider slug={slug}>
+      <div
+        className="flex min-h-screen flex-col bg-background text-foreground"
+        style={
+          {
+            "--store-primary": tenant.primaryColor ?? "#111827",
+          } as React.CSSProperties
+        }
+      >
+        <header className="border-b">
+          <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-3 px-4">
+            {tenant.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={tenant.logoUrl}
+                alt=""
+                className="size-8 rounded-md object-contain"
+              />
+            ) : (
+              <span
+                aria-hidden
+                className="size-8 rounded-md"
+                style={{ background: "var(--store-primary)" }}
+              />
+            )}
+            <span className="truncate font-semibold">{tenant.name}</span>
+            <CartIcon slug={slug} />
+          </div>
+        </header>
 
-      <main className="flex-1">{children}</main>
+        <main className="flex-1">{children}</main>
 
-      <footer className="border-t py-6 text-center text-xs text-muted-foreground">
-        Propulsé par {tenant.rootDomain}
-      </footer>
-    </div>
+        <footer className="border-t py-6 text-center text-xs text-muted-foreground">
+          Propulsé par {tenant.rootDomain}
+        </footer>
+      </div>
+    </CartProvider>
   );
 }

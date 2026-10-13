@@ -15,8 +15,7 @@ export default function LoginPage() {
         </p>
       </div>
 
-      {/* Formulaire Clerk (mot de passe géré exclusivement par Clerk) */}
-      <SignIn path="/login" routing="path" forceRedirectUrl="/admin" />
+      <SignIn routing="path" path="/login" />
     </div>
   );
 }

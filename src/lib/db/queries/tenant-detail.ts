@@ -42,6 +42,7 @@ export type ShippingItem = {
 export type TenantMemberItem = {
   id: string;
   userId: string;
+  tenantId: string;
   email: string;
   role: Role;
   createdAt: string;
@@ -52,8 +53,9 @@ export type TenantStats = {
   admins: number;
   domains: number;
   verifiedDomains: number;
-  activePayments: number;
-  shippingMethods: number;
+  products: number;
+  activeProducts: number;
+  recentOrders: number;
   auditLogs30d: number;
   theme: string | null;
   clerkConnected: boolean;
@@ -134,6 +136,7 @@ export async function getTenantMembers(
   return rows.map((row) => ({
     id: row.id,
     userId: row.userId,
+    tenantId: row.tenantId,
     email: row.user.email,
     role: row.role,
     createdAt: row.createdAt.toISOString(),
@@ -144,14 +147,15 @@ export async function getTenantMembers(
 export async function getTenantStats(tenantId: string): Promise<TenantStats> {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-  const [members, admins, domains, verifiedDomains, activePayments, shippingMethods, auditLogs30d, tenant] =
+  const [members, admins, domains, verifiedDomains, products, activeProducts, recentOrders, auditLogs30d, tenant] =
     await Promise.all([
       prisma.tenantUser.count({ where: { tenantId } }),
       prisma.tenantUser.count({ where: { tenantId, role: "ADMIN" } }),
       prisma.tenantDomain.count({ where: { tenantId } }),
       prisma.tenantDomain.count({ where: { tenantId, verified: true } }),
-      prisma.tenantPayment.count({ where: { tenantId, enabled: true } }),
-      prisma.shippingMethod.count({ where: { tenantId, enabled: true } }),
+      prisma.product.count({ where: { tenantId, deletedAt: null } }),
+      prisma.product.count({ where: { tenantId, isActive: true, deletedAt: null } }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: since } } }),
       prisma.auditLog.count({ where: { tenantId, createdAt: { gte: since } } }),
       prisma.tenant.findUnique({
         where: { id: tenantId },
@@ -167,10 +171,60 @@ export async function getTenantStats(tenantId: string): Promise<TenantStats> {
     admins,
     domains,
     verifiedDomains,
-    activePayments,
-    shippingMethods,
+    products,
+    activeProducts,
+    recentOrders,
     auditLogs30d,
     theme: tenant?.theme?.name ?? null,
     clerkConnected: Boolean(tenant?.clerkOrgId),
+  };
+}
+
+export type OrderItem = {
+  id: string;
+  customerName: string;
+  customerPhone: string | null;
+  total: number;
+  status: string;
+  createdAt: string;
+  itemCount: number;
+};
+
+/** Récupère les commandes récentes d'un tenant pour le dashboard. */
+export async function getOrdersByTenant(
+  tenantId: string,
+  options: { pageSize?: number } = {}
+): Promise<{ items: OrderItem[]; total: number }> {
+  const pageSize = options.pageSize ?? 10;
+
+  const [items, total] = await Promise.all([
+    prisma.order.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+      take: pageSize,
+      select: {
+        id: true,
+        customerName: true,
+        customerPhone: true,
+        total: true,
+        status: true,
+        createdAt: true,
+        _count: { select: { items: true } },
+      },
+    }),
+    prisma.order.count({ where: { tenantId } }),
+  ]);
+
+  return {
+    items: items.map((order) => ({
+      id: order.id,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      total: order.total,
+      status: order.status,
+      createdAt: order.createdAt.toISOString(),
+      itemCount: order._count.items,
+    })),
+    total,
   };
 }

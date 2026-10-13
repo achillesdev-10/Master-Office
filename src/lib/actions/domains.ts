@@ -1,6 +1,5 @@
 "use server";
 
-import { promises as dns } from "dns";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { SslStatus, type User } from "@prisma/client";
 import { z } from "zod";
@@ -12,6 +11,8 @@ import { flattenErrors } from "@/lib/validators/tenant";
 import { failure } from "@/lib/actions/types";
 import type { ActionResult } from "@/lib/actions/types";
 import { invalidateTenantCache } from "@/lib/tenant/provision";
+import { provisionCustomDomain, unprovisionCustomDomain } from "@/lib/tenant/provision";
+import { addVercelDomain, removeVercelDomain, verifyVercelDomain, getVercelDomain, formatDnsRecords } from "@/lib/vercel/domains";
 
 const idSchema = z.string().cuid("Identifiant invalide");
 
@@ -19,7 +20,7 @@ const idSchema = z.string().cuid("Identifiant invalide");
  * Server Actions des domaines (module 8 + onglet Domaines du module 7).
  *
  * Toutes les mutations passent par `requireSuperAdmin()`, une validation
- * Zod et le journal d'audit. Les appels réseau (DNS, Vercel) sont
+ * Zod et le journal d'audit. Les appels réseau (Vercel API) sont
  * isolés : une panne ne fait jamais échouer silencieusement l'action.
  */
 
@@ -30,6 +31,18 @@ async function getAdmin(): Promise<User | null> {
     console.error("[domains] accès refusé", error);
     return null;
   }
+}
+
+function getProjectId(): string {
+  const projectId = process.env.VERCEL_PROJECT_ID;
+  if (!projectId) {
+    throw new Error("VERCEL_PROJECT_ID manquant");
+  }
+  return projectId;
+}
+
+function getTeamId(): string | undefined {
+  return process.env.VERCEL_TEAM_ID;
 }
 
 /** Invalide la liste des domaines, sa fiche et l'onglet Domaines. */
@@ -72,6 +85,18 @@ export async function addTenantDomain(input: unknown): Promise<ActionResult> {
       );
     }
 
+    // Ajoute le domaine sur Vercel
+    let dnsRecords: { type: string; name: string; value: string; reason: string }[] = [];
+    try {
+      const projectId = getProjectId();
+      const teamId = getTeamId();
+      const vercelResult = await addVercelDomain(parsed.data.domain, projectId, teamId);
+      dnsRecords = formatDnsRecords(vercelResult.dnsRecords);
+    } catch (vercelError) {
+      console.error("[domains] erreur Vercel à l'ajout", vercelError);
+      // On continue quand même : le domaine sera ajouté en base mais sans config Vercel
+    }
+
     const created = await prisma.tenantDomain.create({
       data: {
         domain: parsed.data.domain,
@@ -80,6 +105,9 @@ export async function addTenantDomain(input: unknown): Promise<ActionResult> {
         verified: false,
       },
     });
+
+    // Provisionne le domaine custom dans Redis (sans TTL)
+    await provisionCustomDomain(tenant.slug, parsed.data.domain);
 
     // Invalide le cache Redis pour inclure le nouveau domaine
     const allDomains = await prisma.tenantDomain.findMany({
@@ -98,6 +126,7 @@ export async function addTenantDomain(input: unknown): Promise<ActionResult> {
         domainId: created.id,
         domain: created.domain,
         result: "created",
+        dnsRecords,
       },
     });
 
@@ -105,6 +134,7 @@ export async function addTenantDomain(input: unknown): Promise<ActionResult> {
     return {
       success: true,
       message: `Domaine ${created.domain} ajouté.`,
+      dnsRecords,
     };
   } catch (error) {
     console.error("[domains] ajout impossible", error);
@@ -142,7 +172,20 @@ export async function removeTenantDomain(id: string): Promise<ActionResult> {
       );
     }
 
+    // Supprime le domaine de Vercel
+    try {
+      const projectId = getProjectId();
+      const teamId = getTeamId();
+      await removeVercelDomain(domain.domain, projectId, teamId);
+    } catch (vercelError) {
+      console.error("[domains] erreur Vercel à la suppression", vercelError);
+      // On continue : on supprime de la base quand même
+    }
+
     await prisma.tenantDomain.delete({ where: { id: domain.id } });
+
+    // Retire le domaine custom de Redis
+    await unprovisionCustomDomain(domain.domain);
 
     // Invalide le cache Redis pour retirer le domaine supprimé
     const remainingDomains = await prisma.tenantDomain.findMany({
@@ -168,11 +211,11 @@ export async function removeTenantDomain(id: string): Promise<ActionResult> {
   }
 }
 
-// ======================== VÉRIFICATION DNS =======================
+// ======================== VÉRIFICATION VIA VERCEL ===================
 
 /**
- * Vérifie le CNAME du domaine (`dns.promises.resolveCname`) et met à
- * jour `verified` / `checkedAt` / `verifiedAt` + le journal d'audit.
+ * Vérifie le domaine via l'API Vercel (déclenche la vérification DNS chez Vercel)
+ * et met à jour `verified` / `checkedAt` / `verifiedAt` + le journal d'audit.
  */
 export async function verifyDomain(id: string): Promise<ActionResult> {
   try {
@@ -188,19 +231,21 @@ export async function verifyDomain(id: string): Promise<ActionResult> {
     });
     if (!domain) return failure("Domaine introuvable.");
 
-    const target = getSslTarget().toLowerCase().replace(/\.$/, "");
+    const projectId = getProjectId();
+    const teamId = getTeamId();
     const now = new Date();
 
-    let records: string[] = [];
     let ok = false;
     let dnsError: string | null = null;
+    let dnsRecords: { type: string; name: string; value: string; reason: string }[] = [];
 
     try {
-      const raw = await dns.resolveCname(domain.domain);
-      records = raw.map((record) => record.toLowerCase().replace(/\.$/, ""));
-      ok = records.includes(target);
-    } catch (error) {
-      dnsError = error instanceof Error ? error.message : "Résolution impossible";
+      // Demande la vérification à Vercel
+      const vercelDomain = await verifyVercelDomain(domain.domain, projectId, teamId);
+      ok = vercelDomain.verified ?? false;
+      dnsRecords = formatDnsRecords(vercelDomain.verification ?? []);
+    } catch (vercelError) {
+      dnsError = vercelError instanceof Error ? vercelError.message : "Erreur Vercel";
     }
 
     await prisma.tenantDomain.update({
@@ -221,9 +266,8 @@ export async function verifyDomain(id: string): Promise<ActionResult> {
       metadata: {
         domainId: domain.id,
         domain: domain.domain,
-        result: ok ? "ok" : dnsError ? "absent" : "mismatch",
-        records,
-        target,
+        result: ok ? "ok" : dnsError ? "error" : "pending",
+        dnsRecords,
         ...(dnsError ? { dnsError } : {}),
       },
     });
@@ -231,32 +275,24 @@ export async function verifyDomain(id: string): Promise<ActionResult> {
     revalidateDomain(domain.id, domain.tenantId);
 
     if (ok) {
-      return { success: true, message: `${domain.domain} vérifié (CNAME conforme).` };
+      return { success: true, message: `${domain.domain} vérifié par Vercel.` };
     }
     if (dnsError) {
-      return failure(
-        `Aucun enregistrement CNAME trouvé pour ${domain.domain}. Ajoutez un CNAME vers ${target}.`,
-      );
+      return failure(`Erreur lors de la vérification : ${dnsError}`);
     }
-    return failure(
-      `CNAME trouvé (${records.join(", ")}) mais la cible attendue est ${target}.`,
-    );
+    return failure(`${domain.domain} en cours de vérification par Vercel. Réessayez dans quelques minutes.`);
   } catch (error) {
     console.error("[domains] vérification impossible", error);
-    return failure("La vérification DNS a échoué.");
+    return failure("La vérification a échoué.");
   }
 }
 
-// ======================== SSL =====================================
+// ======================== SYNC STATUT VERCEL ======================
 
 /**
- * Déclenche (ou relance) la génération du certificat SSL.
- *
- * Pour l'instant, l'automatisation SSL n'est pas configurée.
- * Cette fonction retourne un échec explicite au lieu de simuler un succès.
- * L'intégration réelle (Vercel API ou autre provider) devra être ajoutée plus tard.
+ * Synchronise le statut du domaine avec Vercel (polling).
  */
-export async function requestSsl(id: string): Promise<ActionResult> {
+export async function syncDomainStatus(id: string): Promise<ActionResult> {
   try {
     const admin = await getAdmin();
     if (!admin) return failure("Accès refusé : rôle Super Admin requis.");
@@ -266,20 +302,73 @@ export async function requestSsl(id: string): Promise<ActionResult> {
 
     const domain = await prisma.tenantDomain.findUnique({
       where: { id: parsedId.data },
-      select: { id: true, domain: true, tenantId: true, sslStatus: true },
+      select: { id: true, domain: true, tenantId: true },
     });
     if (!domain) return failure("Domaine introuvable.");
-    if (domain.sslStatus === SslStatus.ACTIVE) {
-      return { success: true, message: `SSL déjà actif pour ${domain.domain}.` };
+
+    const projectId = getProjectId();
+    const teamId = getTeamId();
+    const now = new Date();
+
+    let ok = false;
+    let dnsRecords: { type: string; name: string; value: string; reason: string }[] = [];
+    let sslStatus: SslStatus = SslStatus.PENDING;
+
+    try {
+      const vercelDomain = await getVercelDomain(domain.domain, projectId, teamId);
+      if (vercelDomain) {
+        ok = vercelDomain.verified ?? false;
+        dnsRecords = formatDnsRecords(vercelDomain.verification ?? []);
+        sslStatus = ok ? SslStatus.ACTIVE : SslStatus.PENDING;
+      }
+    } catch (vercelError) {
+      console.error("[domains] sync erreur Vercel", vercelError);
     }
 
-    // L'automatisation SSL n'est pas encore implémentée.
-    // Ne pas modifier le statut ni prétendre qu'une demande a été faite.
-    return failure(
-      "Automatisation SSL non configurée. Intégration Vercel (ou autre provider) à connecter via VERCEL_API_TOKEN.",
-    );
+    await prisma.tenantDomain.update({
+      where: { id: domain.id },
+      data: {
+        verified: ok,
+        checkedAt: now,
+        verifiedAt: ok ? now : null,
+        sslStatus,
+      },
+    });
+
+    await logAction({
+      action: "domain.sync",
+      userId: admin.id,
+      tenantId: domain.tenantId,
+      entity: "Domain",
+      entityId: domain.id,
+      metadata: {
+        domainId: domain.id,
+        domain: domain.domain,
+        result: ok ? "ok" : "pending",
+        dnsRecords,
+      },
+    });
+
+    revalidateDomain(domain.id, domain.tenantId);
+
+    if (ok) {
+      return { success: true, message: `${domain.domain} synchronisé : SSL actif.` };
+    }
+    return failure(`${domain.domain} : vérification en cours ou échec.`);
   } catch (error) {
-    console.error("[domains] demande SSL impossible", error);
-    return failure("La demande de certificat a échoué.");
+    console.error("[domains] sync impossible", error);
+    return failure("La synchronisation a échoué.");
   }
+}
+
+// ======================== SSL =====================================
+
+/**
+ * Le SSL est géré automatiquement par Vercel une fois le domaine vérifié.
+ * Cette fonction n'est plus nécessaire mais maintenue pour compatibilité.
+ */
+export async function requestSsl(id: string): Promise<ActionResult> {
+  return failure(
+    "SSL géré automatiquement par Vercel. Vérifiez le domaine d'abord.",
+  );
 }

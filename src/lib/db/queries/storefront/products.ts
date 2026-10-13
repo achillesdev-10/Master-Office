@@ -26,9 +26,10 @@ export type ProductListItem = {
   shortDescription: string | null;
   basePrice: number;
   compareAtPrice: number | null;
+  isActive: boolean;
   images: { url: string; altText: string | null }[];
   category: { id: string; name: string; slug: string } | null;
-  variants: { id: string; name: string; price: number; attributes: Prisma.JsonValue | null }[];
+  variants: { id: string; name: string; price: number; attributes: Prisma.JsonValue | null; quantity: number }[];
   inStock: boolean;
 };
 
@@ -149,30 +150,31 @@ export async function getStorefrontProducts(
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        shortDescription: true,
-        basePrice: true,
-        compareAtPrice: true,
-        images: {
-          where: { isPrimary: true },
-          take: 1,
-          select: { url: true, altText: true },
-        },
-        category: { select: { id: true, name: true, slug: true } },
-        variants: {
-          where: { isActive: true },
-          select: {
-            id: true,
-            name: true,
-            price: true,
-            attributes: true,
-            inventory: { select: { quantity: true } },
+select: {
+          id: true,
+          name: true,
+          slug: true,
+          shortDescription: true,
+          basePrice: true,
+          compareAtPrice: true,
+          isActive: true,
+          images: {
+            where: { isPrimary: true },
+            take: 1,
+            select: { url: true, altText: true },
+          },
+          category: { select: { id: true, name: true, slug: true } },
+          variants: {
+            where: { isActive: true },
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              attributes: true,
+              inventory: { select: { quantity: true } },
+            },
           },
         },
-      },
     }),
   ]);
 
@@ -183,6 +185,7 @@ export async function getStorefrontProducts(
     shortDescription: p.shortDescription,
     basePrice: p.basePrice,
     compareAtPrice: p.compareAtPrice,
+    isActive: p.isActive,
     images: p.images,
     category: p.category,
     variants: p.variants.map((v) => ({
@@ -190,6 +193,7 @@ export async function getStorefrontProducts(
       name: v.name,
       price: v.price,
       attributes: v.attributes,
+      quantity: v.inventory?.quantity ?? 0,
     })),
     inStock: p.variants.some(
       (v) => (v.inventory?.quantity ?? 0) > 0
@@ -316,30 +320,31 @@ export async function getStorefrontProductBySlug(
     },
     take: 4,
     orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      shortDescription: true,
-      basePrice: true,
-      compareAtPrice: true,
-      images: {
-        where: { isPrimary: true },
-        take: 1,
-        select: { url: true, altText: true },
-      },
-      category: { select: { id: true, name: true, slug: true } },
-      variants: {
-        where: { isActive: true },
-        select: {
-          id: true,
-          name: true,
-          price: true,
-          attributes: true,
-          inventory: { select: { quantity: true, allowBackorder: true } },
+select: {
+        id: true,
+        name: true,
+        slug: true,
+        shortDescription: true,
+        basePrice: true,
+        compareAtPrice: true,
+        isActive: true,
+        images: {
+          where: { isPrimary: true },
+          take: 1,
+          select: { url: true, altText: true },
+        },
+        category: { select: { id: true, name: true, slug: true } },
+        variants: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            attributes: true,
+            inventory: { select: { quantity: true, allowBackorder: true } },
+          },
         },
       },
-    },
   });
 
   return {
@@ -358,6 +363,7 @@ export async function getStorefrontProductBySlug(
       shortDescription: p.shortDescription,
       basePrice: p.basePrice,
       compareAtPrice: p.compareAtPrice,
+      isActive: p.isActive,
       images: p.images,
       category: p.category,
       variants: p.variants.map((v) => ({
@@ -365,6 +371,7 @@ export async function getStorefrontProductBySlug(
         name: v.name,
         price: v.price,
         attributes: v.attributes,
+        quantity: v.inventory?.quantity ?? 0,
       })),
       inStock: p.variants.some(
         (v) => (v.inventory?.quantity ?? 0) > 0

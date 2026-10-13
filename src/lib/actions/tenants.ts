@@ -14,14 +14,11 @@ import {
   provisionTenant,
 } from "@/lib/tenant/provision";
 import { invalidateTenantResolveCache } from "@/lib/tenant/resolve";
-import { encryptSecret, isEncryptionConfigured } from "@/lib/security/crypto";
 import {
   changeRoleSchema,
   createTenantSchema,
   flattenErrors,
   inviteUserSchema,
-  paymentSettingsSchema,
-  shippingMethodSchema,
   slugOnlySchema,
   slugify,
   updateTenantInfoSchema,
@@ -86,8 +83,8 @@ export async function checkSlugAvailability(slug: string): Promise<{
 
 /**
  * Crée une boutique : transaction Prisma (Tenant + TenantDomain +
- * TenantUser admin + TenantPayment + ShippingMethod), puis
- * organisation Clerk et provisioning Redis (tolérants à l'erreur).
+ * TenantUser admin), puis organisation Clerk et provisioning Redis
+ * (tolérants à l'erreur). Paiements et livraison gérés hors plateforme.
  */
 export async function createTenant(input: unknown): Promise<CreateTenantResult> {
   const admin = await requireSuperAdmin();
@@ -137,23 +134,6 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
 
       await ensureTenantAdmin(tx, created.id, data.contactEmail, created.slug);
 
-      await tx.tenantPayment.createMany({
-        data: data.providers.map((provider) => ({
-          tenantId: created.id,
-          provider,
-          enabled: true,
-        })),
-      });
-
-      await tx.shippingMethod.createMany({
-        data: data.methods.map((method) => ({
-          tenantId: created.id,
-          name: method.name,
-          price: method.price,
-          enabled: method.enabled,
-        })),
-      });
-
       return created;
     });
 
@@ -195,8 +175,6 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
       entityId: tenant.id,
       metadata: {
         slug: tenant.slug,
-        providers: data.providers,
-        shippingMethods: data.methods.length,
         themeId: data.themeId,
         clerkOrgCreated: clerkOrgId !== null,
       },
@@ -518,202 +496,6 @@ export async function updateTenantAppearance(
   } catch (error) {
     console.error("[tenants] mise à jour thème impossible", error);
     return failure("L'enregistrement a échoué.");
-  }
-}
-
-/** Onglet « Paiements » : activation d'un provider + clé API chiffrée. */
-export async function savePaymentSettings(
-  tenantId: string,
-  input: unknown,
-): Promise<ActionResult> {
-  try {
-    const admin = await getAdmin();
-    if (!admin) return failure("Accès refusé : rôle Super Admin requis.");
-
-    const tenant = await findTenantRecord(tenantId);
-    if (!tenant) return failure("Boutique introuvable.");
-
-    const parsed = paymentSettingsSchema.safeParse(input);
-    if (!parsed.success) {
-      const { fieldErrors, formError } = flattenErrors(parsed.error);
-      return failure(formError, fieldErrors);
-    }
-    const { provider, enabled, apiKey } = parsed.data;
-
-    if (apiKey && !isEncryptionConfigured()) {
-      return failure(
-        "ENCRYPTION_KEY absente : impossible de stocker une clé API.",
-      );
-    }
-
-    const existing = await prisma.tenantPayment.findUnique({
-      where: { tenantId_provider: { tenantId: tenant.id, provider } },
-      select: { apiKeyEncrypted: true },
-    });
-
-    await prisma.tenantPayment.upsert({
-      where: { tenantId_provider: { tenantId: tenant.id, provider } },
-      create: {
-        tenantId: tenant.id,
-        provider,
-        enabled,
-        apiKeyEncrypted: apiKey ? encryptSecret(apiKey) : null,
-      },
-      update: {
-        enabled,
-        ...(apiKey ? { apiKeyEncrypted: encryptSecret(apiKey) } : {}),
-      },
-    });
-
-    await logAction({
-      action: "tenant.payment.update",
-      userId: admin.id,
-      tenantId: tenant.id,
-      entity: "Tenant",
-      entityId: tenant.id,
-      metadata: {
-        provider,
-        enabled,
-        // Jamais de clé en clair dans le journal d'audit.
-        keyUpdated: Boolean(apiKey),
-        keyStored: Boolean(apiKey ? true : existing?.apiKeyEncrypted),
-      },
-    });
-
-    revalidateTenantDetail(tenant.id);
-    return {
-      success: true,
-      message: apiKey
-        ? `Clé API ${provider} chiffrée et enregistrée.`
-        : `Moyen de paiement ${provider} mis à jour.`,
-    };
-  } catch (error) {
-    console.error("[tenants] paiement impossible", error);
-    return failure("L'enregistrement a échoué.");
-  }
-}
-
-// ---------------------- MODES DE LIVRAISON ------------------------
-
-/** Onglet « Livraison » : ajout d'une méthode. */
-export async function createShippingMethod(
-  tenantId: string,
-  input: unknown,
-): Promise<ActionResult> {
-  try {
-    const admin = await getAdmin();
-    if (!admin) return failure("Accès refusé : rôle Super Admin requis.");
-
-    const tenant = await findTenantRecord(tenantId);
-    if (!tenant) return failure("Boutique introuvable.");
-
-    const parsed = shippingMethodSchema.safeParse(input);
-    if (!parsed.success) {
-      const { fieldErrors, formError } = flattenErrors(parsed.error);
-      return failure(formError, fieldErrors);
-    }
-
-    const method = await prisma.shippingMethod.create({
-      data: {
-        tenantId: tenant.id,
-        name: parsed.data.name,
-        price: parsed.data.price,
-        enabled: parsed.data.enabled,
-      },
-    });
-
-    await logAction({
-      action: "tenant.shipping.create",
-      userId: admin.id,
-      tenantId: tenant.id,
-      entity: "ShippingMethod",
-      entityId: method.id,
-      metadata: { methodId: method.id, name: method.name, price: method.price },
-    });
-
-    revalidateTenantDetail(tenant.id);
-    return { success: true, message: `Méthode « ${method.name} » ajoutée.` };
-  } catch (error) {
-    console.error("[tenants] création livraison impossible", error);
-    return failure("L'ajout a échoué.");
-  }
-}
-
-/** Onglet « Livraison » : modification (nom, prix, activation). */
-export async function updateShippingMethod(
-  id: string,
-  input: unknown,
-): Promise<ActionResult> {
-  try {
-    const admin = await getAdmin();
-    if (!admin) return failure("Accès refusé : rôle Super Admin requis.");
-
-    const existing = await prisma.shippingMethod.findUnique({
-      where: { id },
-      select: { id: true, tenantId: true, name: true },
-    });
-    if (!existing) return failure("Méthode de livraison introuvable.");
-
-    const parsed = shippingMethodSchema.safeParse(input);
-    if (!parsed.success) {
-      const { fieldErrors, formError } = flattenErrors(parsed.error);
-      return failure(formError, fieldErrors);
-    }
-
-    await prisma.shippingMethod.update({
-      where: { id: existing.id },
-      data: {
-        name: parsed.data.name,
-        price: parsed.data.price,
-        enabled: parsed.data.enabled,
-      },
-    });
-
-    await logAction({
-      action: "tenant.shipping.update",
-      userId: admin.id,
-      tenantId: existing.tenantId,
-      entity: "ShippingMethod",
-      entityId: existing.id,
-      metadata: { methodId: existing.id, name: parsed.data.name },
-    });
-
-    revalidateTenantDetail(existing.tenantId);
-    return { success: true, message: "Méthode de livraison mise à jour." };
-  } catch (error) {
-    console.error("[tenants] mise à jour livraison impossible", error);
-    return failure("L'enregistrement a échoué.");
-  }
-}
-
-/** Onglet « Livraison » : suppression. */
-export async function deleteShippingMethod(id: string): Promise<ActionResult> {
-  try {
-    const admin = await getAdmin();
-    if (!admin) return failure("Accès refusé : rôle Super Admin requis.");
-
-    const existing = await prisma.shippingMethod.findUnique({
-      where: { id },
-      select: { id: true, tenantId: true, name: true },
-    });
-    if (!existing) return failure("Méthode de livraison introuvable.");
-
-    await prisma.shippingMethod.delete({ where: { id: existing.id } });
-
-    await logAction({
-      action: "tenant.shipping.delete",
-      userId: admin.id,
-      tenantId: existing.tenantId,
-      entity: "ShippingMethod",
-      entityId: existing.id,
-      metadata: { methodId: existing.id, name: existing.name },
-    });
-
-    revalidateTenantDetail(existing.tenantId);
-    return { success: true, message: `Méthode « ${existing.name} » supprimée.` };
-  } catch (error) {
-    console.error("[tenants] suppression livraison impossible", error);
-    return failure("La suppression a échoué.");
   }
 }
 

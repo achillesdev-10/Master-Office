@@ -5,11 +5,9 @@ import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
   BarChart3,
-  CreditCard,
   Globe,
   Palette,
   Settings,
-  Truck,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -25,8 +23,6 @@ const TABS: { label: string; segment: string; icon: LucideIcon }[] = [
   { label: "Infos", segment: "info", icon: Settings },
   { label: "Domaines", segment: "domains", icon: Globe },
   { label: "Thème", segment: "theme", icon: Palette },
-  { label: "Paiements", segment: "payments", icon: CreditCard },
-  { label: "Livraison", segment: "shipping", icon: Truck },
   { label: "Utilisateurs", segment: "users", icon: Users },
   { label: "Statistiques", segment: "stats", icon: BarChart3 },
   { label: "Zone de danger", segment: "danger", icon: AlertTriangle },

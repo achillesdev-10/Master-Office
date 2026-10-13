@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Loader2, ShieldCheck, Zap } from "lucide-react";
+import { ExternalLink, Loader2, ShieldCheck, Zap, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { requestSsl, verifyDomain } from "@/lib/actions/domains";
+import { syncDomainStatus, requestSsl } from "@/lib/actions/domains";
 import { Button } from "@/components/ui/button";
 
 /**
- * Actions d’une ligne de la liste des domaines : vérification DNS
- * (`dns.promises.resolveCname`) et (re)génération du certificat SSL.
+ * Actions d'une ligne de la liste des domaines : synchronisation avec Vercel
+ * (vérification DNS + SSL) et SSL.
  */
 export function DomainRowActions({ domainId }: { domainId: string }) {
   const router = useRouter();
@@ -37,24 +37,24 @@ export function DomainRowActions({ domainId }: { domainId: string }) {
         variant="ghost"
         size="sm"
         disabled={pending}
-        onClick={() => run(() => verifyDomain(domainId), "Domaine vérifié.")}
+        onClick={() => run(() => syncDomainStatus(domainId), "Domaine synchronise.")}
       >
         {pending ? (
           <Loader2 className="size-3.5 animate-spin" aria-hidden />
         ) : (
-          <ShieldCheck className="size-3.5" aria-hidden />
+          <RefreshCw className="size-3.5" aria-hidden />
         )}
-        Vérifier DNS
+        Synchroniser
       </Button>
 
       <Button
         variant="ghost"
         size="sm"
         disabled={pending}
-        onClick={() => run(() => requestSsl(domainId), "Demande SSL envoyée.")}
+        onClick={() => run(() => requestSsl(domainId), "SSL gere par Vercel.")}
       >
         <Zap className="size-3.5" aria-hidden />
-        Régénérer SSL
+        SSL (Vercel)
       </Button>
 
       <Link

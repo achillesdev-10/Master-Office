@@ -129,29 +129,7 @@ export const themeStepSchema = z.object({
   themeId: z.string().min(1, "Sélectionnez un thème"),
 });
 
-/** Étape 5 — Paiements */
-export const paymentsStepSchema = z.object({
-  providers: z
-    .array(z.enum(PAYMENT_PROVIDERS))
-    .min(1, "Activez au moins un moyen de paiement"),
-});
 
-/** Étape 6 — Livraison (prix en centimes) */
-export const shippingStepSchema = z.object({
-  methods: z
-    .array(
-      z.object({
-        name: z.string().trim().min(1, "Nom de méthode requis").max(80),
-        price: z
-          .number({ invalid_type_error: "Prix invalide" })
-          .int("Prix invalide")
-          .min(0, "Prix négatif")
-          .max(999999, "Prix trop élevé"),
-        enabled: z.boolean(),
-      }),
-    )
-    .min(1, "Ajoutez au moins une méthode de livraison"),
-});
 
 /** Étape 7 — Apparence */
 export const appearanceStepSchema = z.object({
@@ -171,23 +149,19 @@ export const appearanceStepSchema = z.object({
 
 // ======================== COMBINAISON ============================
 
-/** Schéma global : les 7 étapes fusionnées. */
+/** Schéma global : les 5 étapes fusionnées. */
 export const createTenantSchema = clientStepSchema
   .merge(storeStepSchema)
   .merge(configurationStepSchema)
   .merge(themeStepSchema)
-  .merge(paymentsStepSchema)
-  .merge(shippingStepSchema)
   .merge(appearanceStepSchema);
 
-/** Schémas indexés par étape (0 → 6), utilisés par le wizard. */
+/** Schémas indexés par étape (0 → 4), utilisés par le wizard. */
 export const tenantStepSchemas = [
   clientStepSchema,
   storeStepSchema,
   configurationStepSchema,
   themeStepSchema,
-  paymentsStepSchema,
-  shippingStepSchema,
   appearanceStepSchema,
 ] as const;
 

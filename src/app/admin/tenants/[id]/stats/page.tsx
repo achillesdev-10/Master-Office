@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Boxes, CreditCard, Globe, ScrollText, ShieldCheck, Truck, Users } from "lucide-react";
+import { Boxes, Globe, ScrollText, ShieldCheck, Users } from "lucide-react";
 import { getTenantById } from "@/lib/db/queries/tenants";
 import { getTenantStats } from "@/lib/db/queries/tenant-detail";
 import { formatNumber } from "@/lib/utils";
@@ -63,16 +63,16 @@ export default async function TenantStatsPage({
           }`}
         />
         <Kpi
-          label="Paiements actifs"
-          icon={CreditCard}
-          value={formatNumber(stats.activePayments)}
-          hint="Providers acceptés"
+          label="Produits"
+          icon={Boxes}
+          value={formatNumber(stats.products)}
+          hint={`${formatNumber(stats.activeProducts)} actif${stats.activeProducts > 1 ? "s" : ""}`}
         />
         <Kpi
-          label="Livraison active"
-          icon={Truck}
-          value={formatNumber(stats.shippingMethods)}
-          hint="Méthodes proposées"
+          label="Commandes (30j)"
+          icon={ScrollText}
+          value={formatNumber(stats.recentOrders)}
+          hint="Commandes récentes"
         />
       </section>
 

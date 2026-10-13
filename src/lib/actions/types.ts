@@ -14,7 +14,13 @@ export type ActionFailure = {
   fieldErrors?: FieldErrors;
 };
 
-export type ActionResult = { success: true; message?: string } | ActionFailure;
+export type ActionSuccess = {
+  success: true;
+  message?: string;
+  [key: string]: unknown;
+};
+
+export type ActionResult = ActionSuccess | ActionFailure;
 
 export function failure(error: string, fieldErrors?: FieldErrors): ActionFailure {
   return { success: false, error, fieldErrors };

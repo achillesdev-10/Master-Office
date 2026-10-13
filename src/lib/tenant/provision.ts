@@ -9,7 +9,9 @@ import type { TenantStatus } from "@prisma/client";
  *
  * Clés :
  *  - `tenant:{slug}`            → configuration complète de la boutique
- *  - `tenant:host:{host}`       → slug (résolution par sous-domaine, TTL 5 min)
+ *  - `tenant:host:{host}`       → slug (résolution par sous-domaine)
+ *                                 - Sous-domaines plateforme : TTL 5 min
+ *                                 - Domaines personnalisés : sans TTL (permanent)
  *
  * Redis reste un cache : toute écriture est rejouable depuis la DB.
  * Si Upstash n'est pas configuré, les fonctions retournent `null`/`false`
@@ -32,8 +34,8 @@ export type TenantProvisioning = {
   rootDomain: string;
 };
 
-/** TTL (secondes) du cache de résolution host → slug. */
-export const HOST_CACHE_TTL = 300;
+/** TTL (secondes) du cache de résolution host → slug pour sous-domaines plateforme. */
+export const PLATFORM_HOST_TTL = 300;
 
 export function tenantKey(slug: string): string {
   return `tenant:${slug}`;
@@ -127,6 +129,15 @@ async function restDel(keys: string[]): Promise<void> {
   }
 }
 
+/**
+ * Détermine si un domaine est un sous-domaine plateforme.
+ * Ex: "ma-boutique.example.com" → true
+ * Ex: "maboutique.ci" → false
+ */
+function isPlatformDomain(domain: string, rootDomain: string): boolean {
+  return domain.endsWith(`.${rootDomain}`);
+}
+
 /** Écrit la config du tenant + le mappage host → slug pour tous les domaines. */
 export async function provisionTenant(
   config: TenantProvisioning,
@@ -141,9 +152,11 @@ export async function provisionTenant(
       `www.${domain}`,
     ]);
     await Promise.all(
-      hosts.map((host) =>
-        restSet(tenantHostKey(host), JSON.stringify(config.slug), HOST_CACHE_TTL),
-      ),
+      hosts.map((host) => {
+        const isPlatform = isPlatformDomain(host, config.rootDomain);
+        const ttl = isPlatform ? PLATFORM_HOST_TTL : undefined; // Sans TTL pour domaines custom
+        return restSet(tenantHostKey(host), JSON.stringify(config.slug), ttl);
+      }),
     );
     return true;
   } catch (error) {
@@ -198,7 +211,7 @@ export async function getTenantConfig(
 }
 
 /**
- * Résout un host → slug via Redis (TTL 5 min). Utilisé par le middleware
+ * Résout un host → slug via Redis. Utilisé par le middleware
  * (runtime Edge : REST Upstash uniquement, jamais Prisma ici).
  * Renvoie `null` si Redis est absent ou si le host est inconnu.
  */
@@ -212,5 +225,46 @@ export async function getTenantSlugByHost(
   } catch (error) {
     console.error("[provision] résolution host impossible", error);
     return null;
+  }
+}
+
+/**
+ * Provisionne un domaine personnalisé dans Redis (sans TTL).
+ * Appelé après vérification réussie du domaine via l'API Vercel.
+ */
+export async function provisionCustomDomain(
+  slug: string,
+  domain: string,
+  rootDomain: string = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "maboutique.com",
+): Promise<boolean> {
+  if (!isRedisConfigured()) return false;
+
+  try {
+    const hosts = [domain, `www.${domain}`];
+    await Promise.all(
+      hosts.map((host) => restSet(tenantHostKey(host), JSON.stringify(slug))),
+    );
+    return true;
+  } catch (error) {
+    console.error("[provision] domaine custom impossible", error);
+    return false;
+  }
+}
+
+/**
+ * Supprime un domaine personnalisé de Redis.
+ */
+export async function unprovisionCustomDomain(
+  domain: string,
+): Promise<boolean> {
+  if (!isRedisConfigured()) return false;
+
+  try {
+    const hosts = [domain, `www.${domain}`];
+    await restDel(hosts.map(tenantHostKey));
+    return true;
+  } catch (error) {
+    console.error("[provision] suppression domaine custom impossible", error);
+    return false;
   }
 }

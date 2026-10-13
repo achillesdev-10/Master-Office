@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { ShoppingCart, Tag } from "lucide-react";
+import { ShoppingCart, Tag, MessageSquare } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
+import { useCart } from "./cart-context";
+import { normalizePhoneNumber } from "@/lib/utils";
 import type { Prisma } from "@prisma/client";
 
 interface ProductCardProps {
@@ -24,15 +26,38 @@ interface ProductCardProps {
     inStock: boolean;
   };
   slug: string;
+  tenantWhatsAppPhone?: string | null;
 }
 
-export function ProductCard({ product, slug }: ProductCardProps) {
+export function ProductCard({ product, slug, tenantWhatsAppPhone }: ProductCardProps) {
+  const { addItem } = useCart(slug);
   const hasDiscount = product.compareAtPrice && product.compareAtPrice > product.basePrice;
   const discountPercent = hasDiscount
     ? Math.round(((product.compareAtPrice! - product.basePrice) / product.compareAtPrice!) * 100)
     : 0;
 
   const primaryImage = product.images[0]?.url;
+  const whatsappPhone = normalizePhoneNumber(tenantWhatsAppPhone);
+  const hasWhatsApp = !!whatsappPhone;
+  const defaultVariant = product.variants[0];
+
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (defaultVariant) {
+      addItem(product.id, defaultVariant.id, 1);
+    }
+  };
+
+  const handleWhatsAppOrder = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!whatsappPhone || !defaultVariant) return;
+    const message = encodeURIComponent(
+      `Bonjour, je souhaite commander : ${product.name} ${defaultVariant.name ? `(${defaultVariant.name})` : ""} x1 — ${formatNumber(defaultVariant.price)} FCFA`
+    );
+    window.open(`https://wa.me/${whatsappPhone}?text=${message}`, "_blank");
+  };
 
   return (
     <Link
@@ -77,7 +102,7 @@ export function ProductCard({ product, slug }: ProductCardProps) {
           </p>
         )}
 
-        <div className="mt-auto flex items-center justify-between gap-2">
+        <div className="mt-auto flex flex-col gap-2">
           <div className="flex flex-col">
             {hasDiscount ? (
               <>
@@ -95,13 +120,29 @@ export function ProductCard({ product, slug }: ProductCardProps) {
             )}
           </div>
 
-          <button
-            className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={!product.inStock}
-            aria-label={`Ajouter ${product.name} au panier`}
-          >
-            <ShoppingCart className="size-5" aria-hidden />
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleAddToCart}
+              disabled={!product.inStock}
+              className="flex-1 flex h-10 items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={`Ajouter ${product.name} au panier`}
+            >
+              <ShoppingCart className="size-5" aria-hidden />
+              <span className="hidden sm:inline">Panier</span>
+            </button>
+
+            {hasWhatsApp && (
+              <button
+                onClick={handleWhatsAppOrder}
+                disabled={!product.inStock}
+                className="flex-1 flex h-10 items-center justify-center gap-2 rounded-lg bg-green-600 text-white transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label={`Commander ${product.name} sur WhatsApp`}
+              >
+                <MessageSquare className="size-5" aria-hidden />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </Link>

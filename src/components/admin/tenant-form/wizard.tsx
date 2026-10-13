@@ -24,8 +24,6 @@ import { StepClient } from "./steps/step-client";
 import { StepStore } from "./steps/step-store";
 import { StepConfiguration } from "./steps/step-configuration";
 import { StepTheme } from "./steps/step-theme";
-import { StepPayments } from "./steps/step-payments";
-import { StepShipping } from "./steps/step-shipping";
 import { StepAppearance } from "./steps/step-appearance";
 import type { SlugStatus, ThemeOption, WizardValues } from "./types";
 
@@ -55,18 +53,6 @@ const STEPS = [
     description: "Habillage visuel appliqué à la vitrine.",
   },
   {
-    key: "payments",
-    label: "Paiements",
-    title: "Moyens de paiement",
-    description: "Choisissez les moyens de paiement activés.",
-  },
-  {
-    key: "shipping",
-    label: "Livraison",
-    title: "Méthodes de livraison",
-    description: "Modes de livraison proposés et leurs frais.",
-  },
-  {
     key: "appearance",
     label: "Apparence",
     title: "Apparence de la marque",
@@ -88,8 +74,6 @@ function buildDefaultValues(themes: ThemeOption[]): WizardValues {
     language: "fr",
     timezone: "Africa/Abidjan",
     themeId: themes[0]?.id ?? "",
-    providers: ["orange_money"],
-    methods: [{ name: "Livraison standard", price: 5000, enabled: true }],
     logoUrl: "",
     primaryColor: "#4f46e5",
   };
@@ -331,12 +315,6 @@ export function TenantWizard({ themes }: { themes: ThemeOption[] }) {
             />
           )}
           {step === 4 && (
-            <StepPayments values={values} onChange={patch} errors={errors} />
-          )}
-          {step === 5 && (
-            <StepShipping values={values} onChange={patch} errors={errors} />
-          )}
-          {step === 6 && (
             <StepAppearance values={values} onChange={patch} errors={errors} />
           )}
         </div>

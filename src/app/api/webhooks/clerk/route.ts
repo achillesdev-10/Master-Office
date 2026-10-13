@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db/prisma";
+import { Role } from "@prisma/client";
 
 /**
  * Webhook Clerk → synchronisation de la table User.
@@ -10,6 +11,7 @@ import prisma from "@/lib/db/prisma";
  * Événements traités : user.created, user.updated, user.deleted.
  * Idempotent : upsert sur `clerkId` unique + deleteMany (rejeu sans effet).
  * Jamais de mot de passe stocké (Clerk reste le seul détenteur).
+ * Gestion des conflits d'email : met à jour le clerkId existant sans 500.
  */
 
 type ClerkEmail = { id: string; email_address: string };
@@ -20,7 +22,6 @@ type ClerkUserEvent = {
     id: string;
     email_addresses?: ClerkEmail[];
     primary_email_address_id?: string | null;
-    // Champ présent dans le payload Clerk : volontairement ignoré.
     password?: string;
   };
 };
@@ -58,8 +59,6 @@ export async function POST(req: NextRequest) {
 
   let event: ClerkUserEvent;
   try {
-    // svix v2 : verify() valide la signature et throw si elle est invalide
-    // (il ne renvoie plus le payload décodé → on le parse nous-mêmes).
     new Webhook(secret).verify(payload, {
       "svix-id": svixId,
       "svix-timestamp": svixTimestamp,
@@ -89,56 +88,75 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Idempotent : l'upsert sur clerkId unique rend le rejeu inoffensif.
-        // Seuls clerkId/email/role (défaut MEMBER) sont persistés.
-        //
-        // Réconciliation des comptes provisoires : quand le super admin
-        // crée une boutique pour un client (module 6), un User est créé avec
-        // un clerkId « pending_* ». À la première connexion réelle du client,
-        // on remplace ce clerkId provisoire par le vrai plutôt que de créer
-        // un doublon (contrainte unique sur l'email).
+        // SUPER_ADMIN bootstrap : emails listés dans SUPER_ADMIN_EMAILS
+        const superAdminEmails = process.env.SUPER_ADMIN_EMAILS
+          ?.split(",")
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean) ?? [];
+
+        const isSuperAdminEmail = superAdminEmails.includes(email.toLowerCase());
+
+        // Cherche un user existant par email
         const existingByEmail = await prisma.user.findUnique({
           where: { email },
-          select: { id: true, clerkId: true },
+          select: { id: true, clerkId: true, role: true },
         });
 
-        if (
-          existingByEmail &&
-          existingByEmail.clerkId !== data.id &&
-          existingByEmail.clerkId.startsWith("pending_")
-        ) {
-          await prisma.user.update({
-            where: { id: existingByEmail.id },
-            data: { clerkId: data.id, email },
-          });
+        if (existingByEmail) {
+          if (existingByEmail.clerkId !== data.id) {
+            if (existingByEmail.clerkId.startsWith("pending_")) {
+              // Réconciliation compte pending → vrai clerkId
+              await prisma.user.update({
+                where: { id: existingByEmail.id },
+                data: {
+                  clerkId: data.id,
+                  role: isSuperAdminEmail ? Role.SUPER_ADMIN : existingByEmail.role,
+                },
+              });
+              console.log(`[webhook-clerk] Réconcilié pending_* → ${data.id} pour ${email}`);
+            } else {
+              // Conflit email : un user existe avec cet email et un clerkId non-pending différent
+              // Met à jour le clerkId (changement d'identifiant Clerk rare)
+              await prisma.user.update({
+                where: { id: existingByEmail.id },
+                data: { clerkId: data.id },
+              });
+              console.log(`[webhook-clerk] Conflit email résolu : ${existingByEmail.clerkId} → ${data.id} pour ${email}`);
+            }
+          } else if (isSuperAdminEmail && existingByEmail.role !== Role.SUPER_ADMIN) {
+            // Met à jour le rôle si l'email est dans SUPER_ADMIN_EMAILS
+            await prisma.user.update({
+              where: { id: existingByEmail.id },
+              data: { role: Role.SUPER_ADMIN },
+            });
+            console.log(`[webhook-clerk] Rôle SUPER_ADMIN attribué à ${email}`);
+          }
         } else {
-          await prisma.user.upsert({
-            where: { clerkId: data.id },
-            update: { email },
-            create: { clerkId: data.id, email },
+          // Crée le nouvel utilisateur
+          await prisma.user.create({
+            data: {
+              clerkId: data.id,
+              email,
+              role: isSuperAdminEmail ? Role.SUPER_ADMIN : Role.MEMBER,
+            },
           });
         }
         break;
       }
 
       case "user.deleted": {
-        // Idempotent : deleteMany ne remonte pas d'erreur si déjà supprimé
-        // (Cascade : memberships retirés, AuditLog.userId mis à null).
         await prisma.user.deleteMany({ where: { clerkId: data.id } });
         break;
       }
 
       default:
-        // Événements non gérés : accusé réception pour stopper les retries.
         break;
     }
   } catch (error) {
     console.error(`[webhook-clerk] erreur sur ${type}`, error);
-    // 500 → svix rejouera l'événement (idempotent, donc sûr).
-    return NextResponse.json(
-      { error: "Erreur de traitement" },
-      { status: 500 },
-    );
+    // On répond 200 pour éviter les boucles de retry svix
+    // L'erreur est journalisée pour investigation.
+    return NextResponse.json({ received: true, error: "Logged" });
   }
 
   return NextResponse.json({ received: true });

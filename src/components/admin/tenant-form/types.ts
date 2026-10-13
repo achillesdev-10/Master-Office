@@ -1,6 +1,6 @@
-import type { CreateTenantInput, PaymentProvider } from "@/lib/validators/tenant";
+import type { CreateTenantInput } from "@/lib/validators/tenant";
 
-/** État local du wizard (couvre les 7 étapes, y compris les champs optionnels). */
+/** État local du wizard (couvre les 5 étapes, y compris les champs optionnels). */
 export type WizardValues = Omit<
   CreateTenantInput,
   "contactPhone" | "description" | "logoUrl"
@@ -22,7 +22,7 @@ export type SlugStatus =
 
 export type ThemeOption = { id: string; name: string; slug: string };
 
-/** Props communes aux 7 composants d'étape. */
+/** Props communes aux 5 composants d'étape. */
 export type StepProps = {
   values: WizardValues;
   onChange: (patch: Partial<WizardValues>) => void;
@@ -35,5 +35,3 @@ export type StepProps = {
   /** Étape « Apparence » : upload du logo en cours */
   uploading?: boolean;
 };
-
-export type { PaymentProvider };

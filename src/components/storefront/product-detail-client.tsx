@@ -4,10 +4,11 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ShoppingCart, ChevronLeft, ChevronRight, Tag, Truck, Shield, RotateCcw, Minus, Plus, X } from "lucide-react";
+import { ShoppingCart, ChevronLeft, ChevronRight, Tag, MessageSquare, Minus, Plus, X, RotateCcw, Truck, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { formatNumber } from "@/lib/utils";
-import { addToCartAction } from "@/lib/actions/storefront/cart";
+import { normalizePhoneNumber } from "@/lib/utils";
+import { useCart } from "./cart-context";
 import { cn } from "@/lib/utils";
 import type { Prisma } from "@prisma/client";
 
@@ -61,12 +62,14 @@ interface ProductDetailClientProps {
     name: string;
     slug: string;
     currency: string;
+    contactPhone?: string | null;
   };
 }
 
 export function ProductDetailClient({ initialProduct, tenant }: ProductDetailClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { addItem } = useCart(tenant.slug);
   const [product, setProduct] = useState(initialProduct);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedVariant, setSelectedVariant] = useState(
@@ -74,11 +77,6 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
   );
   const [quantity, setQuantity] = useState(1);
   const [isAdding, setIsAdding] = useState(false);
-
-  // Mettre à jour le produit si les paramètres de recherche changent (navigation navigateur)
-  useEffect(() => {
-    // Le composant parent gère le chargement initial
-  }, [searchParams]);
 
   useEffect(() => {
     if (product.metaTitle) document.title = `${product.metaTitle} - ${tenant.name}`;
@@ -96,30 +94,23 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
   const currentInStock = selectedVariant?.inStock ?? productInStock;
   const currentQuantity = selectedVariant?.quantity ?? 0;
   const heroImage = product.images[selectedImageIndex]?.url ?? product.images[0]?.url;
+  const whatsappPhone = normalizePhoneNumber(tenant.contactPhone);
+  const hasWhatsApp = !!whatsappPhone;
 
-  const handleAddToCart = async () => {
+  const handleAddToCart = () => {
     if (!selectedVariant || !currentInStock) return;
-
-    setIsAdding(true);
-    try {
-      const result = await addToCartAction({
-        slug: tenant.slug,
-        productId: product.id,
-        variantId: selectedVariant.id,
-        quantity,
-      });
-
-      if (result.success) {
-        toast.success(result.message || "Produit ajouté au panier");
-        router.refresh();
-      } else {
-        toast.error(result.error || "Erreur lors de l'ajout au panier");
-      }
-    } catch (error) {
-      toast.error("Erreur inattendue");
-    } finally {
-      setIsAdding(false);
+    if (selectedVariant) {
+      addItem(product.id, selectedVariant.id, quantity);
+      toast.success(`${product.name} ajouté au panier`);
     }
+  };
+
+  const handleWhatsAppOrder = () => {
+    if (!hasWhatsApp || !selectedVariant) return;
+    const message = encodeURIComponent(
+      `Bonjour, je souhaite commander : ${product.name} ${selectedVariant.name ? `(${selectedVariant.name})` : ""} x${quantity} — ${formatNumber(currentPrice * quantity)} FCFA`
+    );
+    window.open(`https://wa.me/${whatsappPhone}?text=${message}`, "_blank");
   };
 
   const incrementQty = () => setQuantity((q) => Math.min(q + 1, currentQuantity || 99));
@@ -380,44 +371,45 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
             </div>
           </div>
 
-          {/* Bouton ajouter au panier */}
-          <button
-            onClick={handleAddToCart}
-            disabled={isAdding || !currentInStock}
-            className="w-full flex h-12 items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 text-base font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isAdding ? (
-              <>
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                Ajout en cours...
-              </>
-            ) : !currentInStock ? (
-              <>
-                <X className="size-5" aria-hidden />
-                Rupture de stock
-              </>
-            ) : (
-              <>
-                <ShoppingCart className="size-5" aria-hidden />
-                Ajouter au panier
-              </>
+          {/* Boutons d'action */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleAddToCart}
+              disabled={isAdding || !currentInStock}
+              className="flex-1 flex h-12 items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 text-base font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isAdding ? (
+                <>
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Ajout en cours...
+                </>
+              ) : !currentInStock ? (
+                <>
+                  <X className="size-5" aria-hidden />
+                  Rupture de stock
+                </>
+              ) : (
+                <>
+                  <ShoppingCart className="size-5" aria-hidden />
+                  Ajouter au panier
+                </>
+              )}
+            </button>
+
+            {hasWhatsApp && (
+              <button
+                onClick={handleWhatsAppOrder}
+                disabled={!currentInStock}
+                className="flex-1 flex h-12 items-center justify-center gap-2 rounded-lg bg-green-600 text-white transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <MessageSquare className="size-5" aria-hidden />
+                <span>Commander sur WhatsApp</span>
+              </button>
             )}
-          </button>
+          </div>
 
           {/* Garanties */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -431,8 +423,8 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
             <div className="flex items-center gap-2 rounded-lg bg-background/50 p-4 border">
               <Shield className="size-5 text-primary" aria-hidden />
               <div>
-                <p className="text-sm font-medium">Paiement sécurisé</p>
-                <p className="text-xs text-muted-foreground">Orange Money, MTN, Wave...</p>
+                <p className="text-sm font-medium">Paiement à convenir</p>
+                <p className="text-xs text-muted-foreground">Avec le vendeur</p>
               </div>
             </div>
             <div className="flex items-center gap-2 rounded-lg bg-background/50 p-4 border">
@@ -512,7 +504,7 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {product.relatedProducts.map((related) => (
-              <ProductCard key={related.id} product={related} slug={tenant.slug} />
+              <ProductCard key={related.id} product={related} slug={tenant.slug} tenantWhatsAppPhone={tenant.contactPhone} />
             ))}
           </div>
         </section>

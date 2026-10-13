@@ -19,7 +19,7 @@ export default async function TenantThemePage({
   return (
     <section className="rounded-lg border bg-card p-6">
       <div className="mb-5">
-        <h2 className="text-base font-semibold">Thème &amp; apparence</h2>
+        <h2 className="text-base font-semibold">Thème & apparence</h2>
         <p className="text-sm text-muted-foreground">
           Thème appliqué à la boutique, logo et couleur principale.
         </p>
