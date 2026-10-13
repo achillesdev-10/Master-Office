@@ -116,12 +116,13 @@ export async function POST(req: NextRequest) {
               console.log(`[webhook-clerk] Réconcilié pending_* → ${data.id} pour ${email}`);
             } else {
               // Conflit email : un user existe avec cet email et un clerkId non-pending différent
-              // Met à jour le clerkId (changement d'identifiant Clerk rare)
-              await prisma.user.update({
-                where: { id: existingByEmail.id },
-                data: { clerkId: data.id },
-              });
-              console.log(`[webhook-clerk] Conflit email résolu : ${existingByEmail.clerkId} → ${data.id} pour ${email}`);
+              // NE PAS mettre à jour le clerkId (risque de prise de contrôle de compte)
+              // On loggue seulement l'anomalie pour investigation
+              console.warn(
+                `[webhook-clerk] Conflit email NON RÉSOLU : user ${existingByEmail.id} ` +
+                  `a clerkId=${existingByEmail.clerkId} mais Clerk envoie clerkId=${data.id} pour ${email}. ` +
+                  `Aucune mise à jour effectuée - investigation manuelle requise.`
+              );
             }
           } else if (isSuperAdminEmail && existingByEmail.role !== Role.SUPER_ADMIN) {
             // Met à jour le rôle si l'email est dans SUPER_ADMIN_EMAILS
