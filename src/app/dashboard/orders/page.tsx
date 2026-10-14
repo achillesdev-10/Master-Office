@@ -85,12 +85,12 @@ export default async function OrdersPage({
   };
 
   async function handleStatusUpdate(orderId: string, newStatus: string) {
-    const result = await updateOrderStatus({ id: orderId, tenantId, status: newStatus as "PENDING" | "CONFIRMED" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELLED" | "REFUNDED" });
+    const result = await updateOrderStatus({ id: orderId, tenantId: tenantId as string, status: newStatus as "PENDING" | "CONFIRMED" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELLED" | "REFUNDED" });
     return result;
   }
 
   async function handleCancel(orderId: string) {
-    const result = await cancelOrder(tenantId, orderId);
+    const result = await cancelOrder(tenantId as string, orderId);
     return result;
   }
 
@@ -179,9 +179,11 @@ export default async function OrdersPage({
                     </td>
                     <td className="px-4 py-3 font-medium">{formatNumber(order.total)} FCFA</td>
                     <td className="px-4 py-3">
-                      <Badge variant="secondary" className={`${colors.bg} ${colors.text}`}>
-                        {statusLabels[order.status] || order.status}
-                      </Badge>
+                      {(() => {
+                        const c = statusColors[order.status];
+                        if (!c) return <Badge variant="secondary">{statusLabels[order.status] || order.status}</Badge>;
+                        return <Badge variant="secondary" className={`${c.bg} ${c.text}`}>{statusLabels[order.status] || order.status}</Badge>;
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {new Date(order.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })}
@@ -203,7 +205,11 @@ export default async function OrdersPage({
                               name="status"
                               defaultValue={order.status}
                               onChange={(e) => e.currentTarget.form?.requestSubmit()}
-                              className={`px-2 py-1 text-xs rounded border ${colors.bg} ${colors.text} bg-transparent`}
+                              className={(() => {
+                                const c = statusColors[order.status];
+                                if (!c) return "px-2 py-1 text-xs rounded border bg-transparent";
+                                return `px-2 py-1 text-xs rounded border ${c.bg} ${c.text} bg-transparent`;
+                              })()}
                             >
                               {availableTransitions.map((status) => (
                                 <option key={status} value={status}>{statusLabels[status]}</option>

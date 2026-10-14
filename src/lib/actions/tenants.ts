@@ -449,9 +449,6 @@ export async function updateTenantInfo(
       data: {
         name: parsed.data.name,
         description: parsed.data.description || null,
-        currency: parsed.data.currency,
-        language: parsed.data.language,
-        timezone: parsed.data.timezone,
         contactName: parsed.data.contactName,
         contactEmail: parsed.data.contactEmail,
         contactPhone: parsed.data.contactPhone || null,
@@ -465,7 +462,7 @@ export async function updateTenantInfo(
       tenantId: tenant.id,
       entity: "Tenant",
       entityId: tenant.id,
-      metadata: { name: parsed.data.name, currency: parsed.data.currency },
+      metadata: { name: parsed.data.name },
     });
 
     revalidateTenantDetail(tenant.id);

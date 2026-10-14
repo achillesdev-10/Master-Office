@@ -45,7 +45,16 @@ async function getProductDetail(tenantId: string, productId: string) {
       },
     },
   });
-  return product;
+
+  if (!product) return null;
+
+  return {
+    ...product,
+    variants: product.variants.map((v) => ({
+      ...v,
+      attributes: (v.attributes as Record<string, unknown>) ?? {},
+    })),
+  };
 }
 
 export default async function EditProductPage({

@@ -21,6 +21,7 @@ const createCategorySchema = z.object({
 
 const updateCategorySchema = createCategorySchema.partial().extend({
   id: z.string().cuid(),
+  tenantId: z.string().cuid(),
 });
 
 const deleteCategorySchema = z.object({
@@ -51,7 +52,7 @@ export async function createCategory(input: unknown): Promise<ActionResult & { c
 
     // Check slug uniqueness within tenant
     const existingSlug = await prisma.category.findFirst({
-      where: { tenantId, slug: data.slug, deletedAt: null },
+      where: { tenantId, slug: data.slug },
       select: { id: true },
     });
     if (existingSlug) {
@@ -115,7 +116,7 @@ export async function updateCategory(input: unknown): Promise<ActionResult> {
     // Check slug uniqueness if changing
     if (updateData.slug) {
       const existingSlug = await prisma.category.findFirst({
-        where: { tenantId, slug: updateData.slug, deletedAt: null, id: { not: id } },
+        where: { tenantId, slug: updateData.slug, id: { not: id } },
         select: { id: true },
       });
       if (existingSlug) {

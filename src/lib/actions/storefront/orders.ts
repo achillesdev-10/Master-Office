@@ -11,7 +11,7 @@ import { flattenErrors } from "@/lib/validators/tenant";
 const updateOrderStatusSchema = z.object({
   id: z.string().cuid(),
   tenantId: z.string().cuid(),
-  status: z.enum(["NEW", "CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]),
+  status: z.enum(["PENDING", "CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"]),
 });
 
 export async function updateOrderStatus(input: unknown): Promise<ActionResult> {

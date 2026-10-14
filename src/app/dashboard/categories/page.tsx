@@ -133,10 +133,7 @@ export default async function CategoriesPage({
                           </Link>
                           <form action={async () => {
                             "use server";
-                            const result = await handleDeleteCategory(category.id);
-                            if (!result.success) {
-                              // Error handled by form
-                            }
+                            await handleDeleteCategory(category.id);
                           }}>
                             <Button
                               type="submit"

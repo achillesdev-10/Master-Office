@@ -117,7 +117,7 @@ export default function NewProductForm({ tenantId, categories }: NewProductFormP
         if (result.success && result.url) {
           setImageUrls((prev) => [...prev, result.url!]);
         } else {
-          toast.error(result.error || `Erreur lors de l'upload de ${file.name}`);
+          toast.error((result as { error?: string }).error ?? `Erreur lors de l'upload de ${file.name}`);
         }
       }
     } catch {

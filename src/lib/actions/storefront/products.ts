@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/db/prisma";
+import { Prisma } from "@prisma/client";
 import { requireTenantAccess } from "@/lib/auth/permissions";
 import { logAction } from "@/lib/audit/log";
 import { failure, type ActionResult } from "@/lib/actions/types";
@@ -25,6 +26,7 @@ const createProductSchema = z.object({
   trackInventory: z.boolean().default(true),
   images: z.array(z.string().url()).max(5).default([]),
   variants: z.array(z.object({
+    id: z.string().cuid().optional(),
     name: z.string().trim().min(1).max(80),
     price: z.number().int().min(0),
     quantity: z.number().int().min(0),
@@ -35,6 +37,7 @@ const createProductSchema = z.object({
 
 const updateProductSchema = createProductSchema.partial().extend({
   id: z.string().cuid(),
+  tenantId: z.string().cuid(),
 });
 
 const deleteProductSchema = z.object({
@@ -113,7 +116,7 @@ export async function createProduct(input: unknown): Promise<ActionResult & { pr
       }
 
       for (let i = 0; i < variants.length; i++) {
-        const variant = variants[i];
+        const variant = variants[i]!;
         const createdVariant = await tx.productVariant.create({
           data: {
             productId: createdProduct.id,
@@ -121,7 +124,7 @@ export async function createProduct(input: unknown): Promise<ActionResult & { pr
             name: variant.name,
             sku: variant.sku ?? null,
             price: variant.price,
-            attributes: variant.attributes ?? null,
+            attributes: (variant.attributes ?? Prisma.JsonNull) as Prisma.InputJsonValue,
             position: i,
           },
         });
@@ -224,7 +227,7 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
         const existingVariantIds = new Set(existingVariants.map(v => v.id));
 
         for (let i = 0; i < variants.length; i++) {
-          const variant = variants[i];
+          const variant = variants[i]!;
           if (variant.id && existingVariantIds.has(variant.id)) {
             await tx.productVariant.update({
               where: { id: variant.id, tenantId },
@@ -232,7 +235,7 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
                 name: variant.name,
                 price: variant.price,
                 sku: variant.sku ?? null,
-                attributes: variant.attributes ?? null,
+                attributes: (variant.attributes ?? Prisma.JsonNull) as Prisma.InputJsonValue,
                 position: i,
                 isActive: true,
               },
@@ -246,7 +249,7 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
                 name: variant.name,
                 sku: variant.sku ?? null,
                 price: variant.price,
-                attributes: variant.attributes ?? null,
+                attributes: (variant.attributes ?? Prisma.JsonNull) as Prisma.InputJsonValue,
                 position: i,
               },
             });
@@ -519,8 +522,9 @@ export async function deleteProductImage(input: unknown): Promise<ActionResult> 
     });
 
     for (let i = 0; i < remainingImages.length; i++) {
+      const image = remainingImages[i]!;
       await prisma.productImage.update({
-        where: { id: remainingImages[i].id },
+        where: { id: image.id },
         data: { position: i, isPrimary: i === 0 },
       });
     }

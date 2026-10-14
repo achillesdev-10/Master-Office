@@ -27,6 +27,7 @@ export type ProductListItem = {
   basePrice: number;
   compareAtPrice: number | null;
   isActive: boolean;
+  isFeatured: boolean;
   images: { url: string; altText: string | null }[];
   category: { id: string; name: string; slug: string } | null;
   variants: { id: string; name: string; price: number; attributes: Prisma.JsonValue | null; quantity: number }[];
@@ -161,6 +162,7 @@ select: {
           basePrice: true,
           compareAtPrice: true,
           isActive: true,
+          isFeatured: true,
           images: {
             where: { isPrimary: true },
             take: 1,
@@ -189,6 +191,7 @@ select: {
     basePrice: p.basePrice,
     compareAtPrice: p.compareAtPrice,
     isActive: p.isActive,
+    isFeatured: p.isFeatured,
     images: p.images,
     category: p.category,
     variants: p.variants.map((v) => ({
@@ -277,7 +280,7 @@ export async function getCategories(
   tenantId: string
 ): Promise<CategoryListItem[]> {
   const categories = await prisma.category.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId },
     orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }],
     select: {
       id: true,
@@ -401,6 +404,7 @@ select: {
         basePrice: true,
         compareAtPrice: true,
         isActive: true,
+        isFeatured: true,
         images: {
           where: { isPrimary: true },
           take: 1,
@@ -437,6 +441,7 @@ select: {
       basePrice: p.basePrice,
       compareAtPrice: p.compareAtPrice,
       isActive: p.isActive,
+      isFeatured: p.isFeatured,
       images: p.images,
       category: p.category,
       variants: p.variants.map((v) => ({

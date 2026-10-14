@@ -1,7 +1,7 @@
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { requireTenantAccess, getCurrentUser } from "@/lib/auth/permissions";
 import { getTenantMembers } from "@/lib/db/queries/tenant-detail";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 
 /**
  * Layout du dashboard propriétaire — protégé par requireTenantAccess.
@@ -9,9 +9,11 @@ import { notFound, redirect } from "next/navigation";
  */
 export default async function DashboardLayout({
   children,
+  params,
 }: {
   children: React.ReactNode;
-}, { params }: { params: Promise<{ tenant?: string }> }) {
+  params: Promise<{ tenant?: string }>;
+}) {
   const user = await getCurrentUser();
   
   if (!user) {

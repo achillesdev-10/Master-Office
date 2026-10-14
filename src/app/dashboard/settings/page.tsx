@@ -114,7 +114,7 @@ export default async function SettingsPage({
                 <Textarea
                   id="description"
                   name="description"
-                  defaultValue={settings.description}
+                  defaultValue={settings.description ?? ""}
                   placeholder="Décrivez votre boutique..."
                   rows={3}
                 />
@@ -127,7 +127,7 @@ export default async function SettingsPage({
                 <Input
                   id="contactName"
                   name="contactName"
-                  defaultValue={settings.contactName}
+                  defaultValue={settings.contactName ?? ""}
                   placeholder="Nom du responsable"
                   required
                 />
@@ -138,7 +138,7 @@ export default async function SettingsPage({
                   id="contactEmail"
                   name="contactEmail"
                   type="email"
-                  defaultValue={settings.contactEmail}
+                  defaultValue={settings.contactEmail ?? ""}
                   placeholder="contact@boutique.com"
                   required
                 />
@@ -152,14 +152,14 @@ export default async function SettingsPage({
                   id="contactPhone"
                   name="contactPhone"
                   type="tel"
-                  defaultValue={settings.contactPhone}
+                  defaultValue={settings.contactPhone ?? ""}
                   placeholder="Ex: 07 01 02 03 04"
                   required
                 />
               </div>
               <div>
                 <Label htmlFor="contactCountry">Pays *</Label>
-                <Select defaultValue={settings.contactCountry} name="contactCountry">
+                <Select defaultValue={settings.contactCountry ?? ""} name="contactCountry">
                   <SelectTrigger>
                     <SelectValue placeholder="Sélectionner un pays" />
                   </SelectTrigger>
@@ -293,7 +293,7 @@ export default async function SettingsPage({
                     themeId: formData.get("themeId") as string || null,
                   });
                 }}>
-                  <Select name="themeId" defaultValue={settings.themeId || "default"} onChange={(e) => e.currentTarget.form?.requestSubmit()}>
+                  <Select name="themeId" defaultValue={settings.themeId || "default"} onValueChange={() => {}}>
                     <SelectTrigger className="w-[300px]">
                       <SelectValue placeholder="Sélectionner un thème" />
                     </SelectTrigger>
@@ -303,6 +303,7 @@ export default async function SettingsPage({
                       ))}
                     </SelectContent>
                   </Select>
+                  <button type="submit" className="sr-only" />
                 </form>
               </div>
             </div>
@@ -330,7 +331,7 @@ export default async function SettingsPage({
                 id="whatsappPhone"
                 name="whatsappPhone"
                 type="tel"
-                defaultValue={settings.contactPhone}
+                defaultValue={settings.contactPhone ?? ""}
                 placeholder="Ex: 07 01 02 03 04"
                 required
               />
@@ -364,7 +365,7 @@ export default async function SettingsPage({
                 <Input
                   id="address"
                   name="address"
-                  defaultValue={settings.address}
+                  defaultValue={settings.address ?? ""}
                   placeholder="Ex: Cocody, Abidjan - Rue des Jardins, Lot 12"
                 />
               </div>
@@ -373,7 +374,7 @@ export default async function SettingsPage({
                 <Textarea
                   id="hours"
                   name="hours"
-                  defaultValue={settings.hours}
+                  defaultValue={settings.hours ?? ""}
                   placeholder="Lun-Ven: 9h-18h\nSam: 9h-13h\nDim: Fermé"
                   rows={3}
                 />

@@ -166,7 +166,8 @@ export default function EditProductForm({ tenantId, product, categories }: EditP
         if (result.success && result.url) {
           setForm((prev) => ({ ...prev, images: [...prev.images, result.url!] }));
         } else {
-          toast.error(result.error || `Erreur lors de l&apos;upload de ${file.name}`);
+          const errorMessage = (result as { error?: string }).error ?? `Erreur lors de l&apos;upload de ${file.name}`;
+          toast.error(errorMessage);
         }
       }
     } catch {
@@ -316,12 +317,14 @@ export default function EditProductForm({ tenantId, product, categories }: EditP
             <ArrowLeft className="size-4 mr-2" />
             Retour
           </Button>
-          <Button variant="outline" asChild>
-            <Link href={`/store/${product.slug}`} target="_blank">
-              <Eye className="size-4 mr-2" />
-              Voir en boutique
-            </Link>
-          </Button>
+          <Link
+            href={`/store/${product.slug}`}
+            target="_blank"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border bg-background px-6 py-3 text-base font-medium text-foreground hover:bg-muted/50 transition-colors"
+          >
+            <Eye className="size-4 mr-2" />
+            Voir en boutique
+          </Link>
         </div>
       </header>
 
@@ -439,7 +442,7 @@ export default function EditProductForm({ tenantId, product, categories }: EditP
                         Principale
                       </div>
                     )}
-                    {deletingImages.has(form.imageIds[index]) && (
+                    {deletingImages.has(form.imageIds[index] ?? "") && (
                       <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                         <Loader2 className="size-6 animate-spin text-white" />
                       </div>
@@ -448,7 +451,7 @@ export default function EditProductForm({ tenantId, product, categories }: EditP
                   <button
                     type="button"
                     onClick={() => removeImage(index)}
-                    disabled={deletingImages.has(form.imageIds[index])}
+                    disabled={deletingImages.has(form.imageIds[index] ?? "")}
                     className="absolute top-1 right-1 p-1 rounded-full bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"
                     aria-label={`Supprimer l'image ${index + 1}`}
                   >

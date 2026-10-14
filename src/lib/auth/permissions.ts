@@ -79,17 +79,20 @@ export async function requireSuperAdmin(): Promise<User> {
     redirect("/login");
   }
 
-  if (user.role !== Role.SUPER_ADMIN) {
+  // TypeScript narrowing: user is guaranteed to be non-null here
+  const currentUser = user!;
+
+  if (currentUser.role !== Role.SUPER_ADMIN) {
     const { redirect } = await import("next/navigation");
     redirect("/unauthorized");
   }
 
-  if (user.disabled) {
+  if (currentUser.disabled) {
     const { redirect } = await import("next/navigation");
     redirect("/unauthorized");
   }
 
-  return user;
+  return currentUser;
 }
 
 /**
@@ -104,19 +107,22 @@ export async function requireTenantAccess(tenantId: string): Promise<User> {
     redirect("/login");
   }
 
-  if (user.disabled) {
+  // TypeScript narrowing: user is guaranteed to be non-null here
+  const currentUser = user!;
+
+  if (currentUser.disabled) {
     const { redirect } = await import("next/navigation");
     redirect("/unauthorized");
   }
 
   // SUPER_ADMIN a accès à tout
-  if (user.role === Role.SUPER_ADMIN) {
-    return user;
+  if (currentUser.role === Role.SUPER_ADMIN) {
+    return currentUser;
   }
 
   // Vérifie l'appartenance au tenant
   const membership = await prisma.tenantUser.findUnique({
-    where: { tenantId_userId: { tenantId, userId: user.id } },
+    where: { tenantId_userId: { tenantId, userId: currentUser.id } },
   });
 
   if (!membership) {
@@ -124,5 +130,5 @@ export async function requireTenantAccess(tenantId: string): Promise<User> {
     redirect("/unauthorized");
   }
 
-  return user;
+  return currentUser;
 }

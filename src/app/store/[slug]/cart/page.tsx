@@ -97,7 +97,7 @@ function CartPage({ slug }: { slug: string }) {
         if (result.success && result.items) {
           setCartDetails({ items: result.items, subtotal: result.subtotal || 0 });
         } else {
-          toast.error(result.error || "Erreur lors du chargement du panier");
+          toast.error((result as { error?: string }).error ?? "Erreur lors du chargement du panier");
           setCartDetails({ items: [], subtotal: 0 });
         }
       } catch {
@@ -489,7 +489,7 @@ async function submitOrderAction(input: {
   return response.json();
 }
 
-export default function CartPageWrapper({
+export default async function CartPageWrapper({
   params,
 }: {
   params: Params;
