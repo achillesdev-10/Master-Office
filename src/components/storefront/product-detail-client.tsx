@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { ShoppingCart, ChevronLeft, ChevronRight, Tag, MessageSquare, Minus, Plus, X, RotateCcw, Truck, Shield } from "lucide-react";
+import { ShoppingCart, ChevronLeft, ChevronRight, Tag, MessageSquare, Minus, Plus, X, RotateCcw, Truck, Shield, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatNumber } from "@/lib/utils";
 import { normalizePhoneNumber } from "@/lib/utils";
@@ -66,17 +65,39 @@ interface ProductDetailClientProps {
   };
 }
 
+interface WhatsAppOrderInput {
+  slug: string;
+  items: { productId: string; variantId?: string; quantity: number }[];
+  customerName: string;
+  customerPhone: string;
+  address: string;
+  notes?: string;
+}
+
+async function submitWhatsAppOrder(input: WhatsAppOrderInput) {
+  const response = await fetch("/api/storefront/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return response.json();
+}
+
 export function ProductDetailClient({ initialProduct, tenant }: ProductDetailClientProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const { addItem } = useCart(tenant.slug);
-  const [product, setProduct] = useState(initialProduct);
+  const [product] = useState(initialProduct);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedVariant, setSelectedVariant] = useState(
     product.variants.find((v) => v.inStock) || product.variants[0] || null
   );
   const [quantity, setQuantity] = useState(1);
-  const [isAdding, setIsAdding] = useState(false);
+  const [isAdding] = useState(false);
+  const [isOrdering, setIsOrdering] = useState(false);
+  const [orderFormOpen, setOrderFormOpen] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [notes, setNotes] = useState("");
 
   useEffect(() => {
     if (product.metaTitle) document.title = `${product.metaTitle} - ${tenant.name}`;
@@ -105,12 +126,48 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
     }
   };
 
-  const handleWhatsAppOrder = () => {
-    if (!hasWhatsApp || !selectedVariant) return;
-    const message = encodeURIComponent(
-      `Bonjour, je souhaite commander : ${product.name} ${selectedVariant.name ? `(${selectedVariant.name})` : ""} x${quantity} — ${formatNumber(currentPrice * quantity)} FCFA`
-    );
-    window.open(`https://wa.me/${whatsappPhone}?text=${message}`, "_blank");
+  const handleWhatsAppOrderClick = () => {
+    if (!hasWhatsApp || !selectedVariant || !currentInStock) return;
+    setOrderFormOpen(true);
+  };
+
+  const handleWhatsAppOrderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customerName.trim() || !customerPhone.trim() || !address.trim()) {
+      toast.error("Veuillez remplir tous les champs obligatoires");
+      return;
+    }
+    if (!currentInStock) {
+      toast.error("Ce produit n'est plus disponible");
+      return;
+    }
+
+    setIsOrdering(true);
+    try {
+      const result = await submitWhatsAppOrder({
+        slug: tenant.slug,
+        items: [{ productId: product.id, variantId: selectedVariant?.id, quantity }],
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        address: address.trim(),
+        notes: notes.trim() || undefined,
+      });
+
+      if (result.success && result.whatsappUrl) {
+        toast.success("Commande créée ! Redirection vers WhatsApp...");
+        setOrderFormOpen(false);
+        window.location.href = result.whatsappUrl;
+        setTimeout(() => {
+          window.open(result.whatsappUrl, "_blank");
+        }, 100);
+      } else {
+        toast.error(String(result.error || "Erreur lors de la création de la commande"));
+      }
+    } catch {
+      toast.error("Erreur inattendue");
+    } finally {
+      setIsOrdering(false);
+    }
   };
 
   const incrementQty = () => setQuantity((q) => Math.min(q + 1, currentQuantity || 99));
@@ -401,8 +458,8 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
 
             {hasWhatsApp && (
               <button
-                onClick={handleWhatsAppOrder}
-                disabled={!currentInStock}
+                onClick={handleWhatsAppOrderClick}
+                disabled={!currentInStock || isOrdering}
                 className="flex-1 flex h-12 items-center justify-center gap-2 rounded-lg bg-green-600 text-white transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <MessageSquare className="size-5" aria-hidden />
@@ -508,6 +565,100 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
             ))}
           </div>
         </section>
+      )}
+
+      {/* Modal commande WhatsApp */}
+      {orderFormOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setOrderFormOpen(false)}>
+          <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Commander sur WhatsApp</h2>
+              <button onClick={() => setOrderFormOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-5" aria-hidden />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Remplissez vos informations pour commander <strong>{product.name}</strong>
+              {selectedVariant && <span> ({selectedVariant.name})</span>}
+              x{quantity}
+            </p>
+            <form onSubmit={handleWhatsAppOrderSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="customerName" className="block text-sm font-medium mb-1">
+                  Nom complet <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="customerName"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Votre nom complet"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label htmlFor="customerPhone" className="block text-sm font-medium mb-1">
+                  Téléphone <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="tel"
+                  id="customerPhone"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Ex: 07 01 02 03 04"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="address" className="block text-sm font-medium mb-1">
+                  Quartier / Adresse <span className="text-destructive">*</span>
+                </label>
+                <textarea
+                  id="address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Ex: Cocody, Abidjan - Rue des Jardins, Lot 12"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="notes" className="block text-sm font-medium mb-1">
+                  Notes (optionnel)
+                </label>
+                <textarea
+                  id="notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Instructions de livraison, code porte, etc."
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isOrdering}
+                className="w-full flex h-12 items-center justify-center gap-2 rounded-lg bg-green-600 text-white font-medium transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isOrdering ? (
+                  <>
+                    <Loader2 className="size-5 animate-spin" aria-hidden />
+                    Création de la commande...
+                  </>
+                ) : (
+                  <>
+                    <MessageSquare className="size-5" aria-hidden />
+                    Commander sur WhatsApp
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

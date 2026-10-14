@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Validateurs Zod du module 6 (wizard de création de boutique).
+ * Validateurs Zod du module 6 (wizard de création de boutique simplifié).
  *
  * Un schéma par étape + le schéma global combiné utilisé par la
  * Server Action `createTenant` — aucune donnée n'est écrite sans
@@ -11,25 +11,6 @@ import { z } from "zod";
 // ======================== CONSTANTES UI ==========================
 
 export const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-export const PAYMENT_PROVIDERS = [
-  "orange_money",
-  "mtn_money",
-  "moov_money",
-  "wave",
-  "cod",
-  "bank_transfer",
-] as const;
-export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
-
-export const PAYMENT_PROVIDER_LABELS: Record<PaymentProvider, string> = {
-  orange_money: "Orange Money",
-  mtn_money: "MTN Mobile Money",
-  moov_money: "Moov Money",
-  wave: "Wave",
-  cod: "Paiement à la livraison",
-  bank_transfer: "Virement bancaire",
-};
 
 export const CURRENCIES = [
   "XOF",
@@ -70,22 +51,21 @@ export const COUNTRIES = [
   "France",
 ] as const;
 
-// ======================== ÉTAPES =================================
+// ======================== ÉTAPES SIMPLIFIÉES =================================
 
-/** Étape 1 — Client */
-export const clientStepSchema = z.object({
+/** Étape 1 — Propriétaire */
+export const ownerStepSchema = z.object({
   contactName: z
     .string()
     .trim()
-    .min(2, "Le nom du client doit faire au moins 2 caractères")
+    .min(2, "Le nom du propriétaire doit faire au moins 2 caractères")
     .max(120, "120 caractères maximum"),
   contactEmail: z.string().trim().email("Adresse email invalide"),
   contactPhone: z
     .string()
     .trim()
-    .max(32, "32 caractères maximum")
-    .optional()
-    .or(z.literal("")),
+    .min(8, "Numéro WhatsApp invalide")
+    .max(32, "32 caractères maximum"),
   contactCountry: z.string().min(2, "Sélectionnez un pays"),
 });
 
@@ -113,60 +93,53 @@ export const storeStepSchema = z.object({
     .or(z.literal("")),
 });
 
-/** Étape 3 — Configuration */
-export const configurationStepSchema = z.object({
-  currency: z.enum(CURRENCIES, {
-    errorMap: () => ({ message: "Sélectionnez une devise" }),
-  }),
-  language: z.enum(LANGUAGES, {
-    errorMap: () => ({ message: "Sélectionnez une langue" }),
-  }),
-  timezone: z.string().min(1, "Sélectionnez un fuseau horaire"),
-});
-
-/** Étape 4 — Thème */
-export const themeStepSchema = z.object({
+/** Étape 3 — Thème & Apparence */
+export const themeAppearanceStepSchema = z.object({
   themeId: z.string().min(1, "Sélectionnez un thème"),
-});
-
-
-
-/** Étape 7 — Apparence */
-export const appearanceStepSchema = z.object({
-  logoUrl: z
-    .string()
-    .trim()
-    .url("URL invalide (https://…)")
-    .optional()
-    .or(z.literal("")),
   primaryColor: z
     .string()
     .regex(
       /^#(?:[0-9a-fA-F]{3}){1,2}$/,
       "Couleur hexadécimale attendue (ex : #4f46e5)",
     ),
+  logoUrl: z
+    .string()
+    .trim()
+    .url("URL invalide (https://…)")
+    .optional()
+    .or(z.literal("")),
+});
+
+/** Étape 4 — Domaine personnalisé (facultatif) */
+export const customDomainStepSchema = z.object({
+  customDomain: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(253, "253 caractères maximum")
+    .regex(/^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Nom de domaine invalide (ex : shop.acme.com)")
+    .optional()
+    .or(z.literal("")),
 });
 
 // ======================== COMBINAISON ============================
 
-/** Schéma global : les 5 étapes fusionnées. */
-export const createTenantSchema = clientStepSchema
+/** Schéma global : les 4 étapes fusionnées. */
+export const createTenantSchema = ownerStepSchema
   .merge(storeStepSchema)
-  .merge(configurationStepSchema)
-  .merge(themeStepSchema)
-  .merge(appearanceStepSchema);
+  .merge(themeAppearanceStepSchema)
+  .merge(customDomainStepSchema);
 
-/** Schémas indexés par étape (0 → 4), utilisés par le wizard. */
+/** Schémas indexés par étape (0 → 3), utilisés par le wizard. */
 export const tenantStepSchemas = [
-  clientStepSchema,
+  ownerStepSchema,
   storeStepSchema,
-  configurationStepSchema,
-  themeStepSchema,
-  appearanceStepSchema,
+  themeAppearanceStepSchema,
+  customDomainStepSchema,
 ] as const;
 
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;
-export type StepIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type StepIndex = 0 | 1 | 2 | 3;
 
 // ======================== MODULE 7 (DÉTAIL) ======================
 
@@ -180,17 +153,16 @@ const checkboxSchema = z.preprocess(
  * Onglet « Infos » : mêmes règles que le wizard, sans le slug
  * (immuable après création).
  */
-export const updateTenantInfoSchema = clientStepSchema
+export const updateTenantInfoSchema = ownerStepSchema
   .merge(storeStepSchema)
-  .merge(configurationStepSchema)
   .omit({ slug: true });
 
 /** Onglet « Thème » : thème + apparence (logo, couleur principale). */
-export const updateThemeSchema = themeStepSchema.merge(appearanceStepSchema);
+export const updateThemeSchema = themeAppearanceStepSchema;
 
 /** Onglet « Paiements » : activation d'un provider + clé API facultative. */
 export const paymentSettingsSchema = z.object({
-  provider: z.enum(PAYMENT_PROVIDERS, {
+  provider: z.enum(["orange_money", "mtn_money", "moov_money", "wave", "cod", "bank_transfer"], {
     errorMap: () => ({ message: "Provider de paiement inconnu" }),
   }),
   enabled: checkboxSchema,

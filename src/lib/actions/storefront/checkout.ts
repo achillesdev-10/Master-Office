@@ -10,6 +10,150 @@ import { flattenErrors } from "@/lib/validators/tenant";
 import { logAction } from "@/lib/audit/log";
 import { normalizePhoneNumber, formatXOF } from "@/lib/utils";
 
+interface CartItemInput {
+  productId: string;
+  variantId?: string;
+  quantity: number;
+}
+
+interface CartProductDetail {
+  productId: string;
+  variantId?: string;
+  quantity: number;
+  product: {
+    id: string;
+    name: string;
+    slug: string;
+    images: { url: string; altText: string | null }[];
+    basePrice: number;
+    compareAtPrice: number | null;
+  };
+  variant?: {
+    id: string;
+    name: string;
+    price: number;
+    compareAtPrice: number | null;
+    inStock: boolean;
+    quantity: number;
+  } | null;
+  lineTotal: number;
+  inStock: boolean;
+}
+
+export async function getCartItemsDetail(slug: string, items: CartItemInput[]): Promise<ActionResult & { items?: CartProductDetail[]; subtotal?: number }> {
+  try {
+    if (items.length === 0) {
+      return { success: true, items: [], subtotal: 0 };
+    }
+    if (items.length > 30) {
+      return failure("Maximum 30 lignes de commande");
+    }
+
+    const tenant = await resolveTenant(slug);
+    if (!tenant) return failure("Boutique introuvable");
+
+    const productIds = items.map((i) => i.productId);
+    const variantIds = items.map((i) => i.variantId).filter((v): v is string => Boolean(v));
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds }, tenantId: tenant.id, isActive: true, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        basePrice: true,
+        compareAtPrice: true,
+        images: {
+          where: { isPrimary: true },
+          take: 1,
+          select: { url: true, altText: true },
+        },
+        variants: {
+          where: { id: { in: variantIds }, isActive: true },
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            compareAtPrice: true,
+            inventory: { select: { quantity: true, allowBackorder: true } },
+          },
+        },
+      },
+    });
+
+    if (products.length !== productIds.length) {
+      return failure("Un ou plusieurs produits sont introuvables ou indisponibles");
+    }
+
+    const detailItems: CartProductDetail[] = items.map((item) => {
+      const product = products.find((p) => p.id === item.productId)!;
+      let variant = null;
+      let price = product.basePrice;
+      let compareAtPrice = product.compareAtPrice;
+      let inStock = false;
+      let availableQty = 0;
+
+      if (item.variantId) {
+        variant = product.variants.find((v) => v.id === item.variantId) || null;
+        if (variant) {
+          price = variant.price;
+          compareAtPrice = variant.compareAtPrice;
+          availableQty = variant.inventory?.quantity ?? 0;
+          inStock = variant.inventory?.allowBackorder === true || availableQty > 0;
+        }
+      } else {
+        // Pas de variante sélectionnée -> prendre la première variante active ou le produit de base
+        const firstVariant = product.variants[0];
+        if (firstVariant) {
+          variant = firstVariant;
+          price = firstVariant.price;
+          compareAtPrice = firstVariant.compareAtPrice;
+          availableQty = firstVariant.inventory?.quantity ?? 0;
+          inStock = firstVariant.inventory?.allowBackorder === true || availableQty > 0;
+        } else {
+          // Produit sans variantes
+          inStock = true;
+          availableQty = 999;
+        }
+      }
+
+      const effectivePrice = compareAtPrice && compareAtPrice > price ? compareAtPrice : price;
+      const lineTotal = effectivePrice * item.quantity;
+
+      return {
+        productId: product.id,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        product: {
+          id: product.id,
+          name: product.name,
+          slug: product.slug,
+          images: product.images,
+          basePrice: product.basePrice,
+          compareAtPrice: product.compareAtPrice,
+        },
+        variant: variant ? {
+          id: variant.id,
+          name: variant.name,
+          price: variant.price,
+          compareAtPrice: variant.compareAtPrice,
+          inStock,
+          quantity: availableQty,
+        } : null,
+        lineTotal,
+        inStock,
+      };
+    });
+
+    const subtotal = detailItems.reduce((sum, item) => sum + item.lineTotal, 0);
+
+    return { success: true, items: detailItems, subtotal };
+  } catch (error) {
+    console.error("[storefront] getCartItemsDetail error:", error);
+    return failure("Erreur lors de la récupération du panier");
+  }
+}
+
 const checkoutSchema = z.object({
   slug: z.string().min(1),
   customerName: z.string().trim().min(2, "Le nom doit faire au moins 2 caractères").max(120),
@@ -133,11 +277,26 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
     const tenant = await resolveTenant(data.slug);
     if (!tenant) return failure("Boutique introuvable");
 
+    // Protection anti-spam : limiter les commandes du même téléphone
+    const recentOrders = await prisma.order.count({
+      where: {
+        tenantId: tenant.id,
+        customerPhone: data.customerPhone,
+        createdAt: { gte: new Date(Date.now() - 10 * 60 * 1000) }, // 10 minutes
+      },
+    });
+    if (recentOrders >= 3) {
+      return failure("Trop de commandes récentes depuis ce numéro. Veuillez patienter.");
+    }
+
     // Vérifier le numéro WhatsApp de la boutique
     const merchant = await prisma.tenant.findUnique({
       where: { id: tenant.id },
-      select: { contactPhone: true },
+      select: { contactPhone: true, status: true },
     });
+    if (!merchant || merchant.status !== "ACTIVE") {
+      return failure("La boutique n'est pas active");
+    }
     const whatsappPhone = normalizePhoneNumber(merchant?.contactPhone);
     if (!whatsappPhone) {
       return failure("La boutique n'a pas de numéro WhatsApp configuré");
@@ -153,9 +312,10 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
         id: true,
         name: true,
         basePrice: true,
+        trackInventory: true,
         variants: {
           where: { id: { in: variantIds }, isActive: true },
-          select: { id: true, name: true, price: true },
+          select: { id: true, name: true, price: true, inventory: { select: { quantity: true, allowBackorder: true, trackQuantity: true } } },
         },
       },
     });
@@ -164,26 +324,76 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
       return failure("Un ou plusieurs produits sont introuvables ou indisponibles");
     }
 
-    // Construire les lignes de commande avec prix serveur
+    // Dédupliquer les items (même produit + même variante) et vérifier la dispo
+    const itemMap = new Map<string, { productId: string; variantId?: string; quantity: number }>();
+    for (const item of data.items) {
+      const key = `${item.productId}:${item.variantId || "default"}`;
+      if (itemMap.has(key)) {
+        const existing = itemMap.get(key)!;
+        existing.quantity = Math.min(existing.quantity + item.quantity, 99);
+      } else {
+        itemMap.set(key, { ...item });
+      }
+    }
+
+    // Construire les lignes de commande avec prix serveur et vérifier stock
     let subtotal = 0;
-    const orderItems = data.items.map((item) => {
+    const orderItems: Array<{
+      productId: string;
+      variantId: string | null;
+      productName: string;
+      variantName: string | null;
+      price: number;
+      quantity: number;
+      total: number;
+    }> = [];
+
+    for (const [, item] of itemMap) {
       const product = products.find((p) => p.id === item.productId)!;
       let price = product.basePrice;
       let variantName: string | null = null;
+      let availableQty = 999;
+      let inStock = true;
 
       if (item.variantId) {
         const variant = product.variants.find((v) => v.id === item.variantId);
         if (!variant) {
-          throw new Error(`Variante ${item.variantId} introuvable`);
+          return failure(`Variante ${item.variantId} introuvable pour ${product.name}`);
         }
         price = variant.price;
         variantName = variant.name;
+        availableQty = variant.inventory?.quantity ?? 0;
+        inStock = variant.inventory?.allowBackorder === true || availableQty > 0;
+        if (product.trackInventory && variant.inventory?.trackQuantity && !inStock) {
+          return failure(`${product.name} (${variantName}) est en rupture de stock`);
+        }
+        if (product.trackInventory && variant.inventory?.trackQuantity && item.quantity > availableQty) {
+          return failure(`Stock insuffisant pour ${product.name} (${variantName}): ${availableQty} disponible(s)`);
+        }
+      } else {
+        // Pas de variante -> prendre la première active
+        const firstVariant = product.variants[0];
+        if (firstVariant) {
+          price = firstVariant.price;
+          variantName = firstVariant.name;
+          availableQty = firstVariant.inventory?.quantity ?? 0;
+          inStock = firstVariant.inventory?.allowBackorder === true || availableQty > 0;
+          if (product.trackInventory && firstVariant.inventory?.trackQuantity && !inStock) {
+            return failure(`${product.name} est en rupture de stock`);
+          }
+          if (product.trackInventory && firstVariant.inventory?.trackQuantity && item.quantity > availableQty) {
+            return failure(`Stock insuffisant pour ${product.name}: ${availableQty} disponible(s)`);
+          }
+        } else if (product.trackInventory) {
+          // Produit sans variantes mais trackInventory activé - ne devrait pas arriver
+          return failure(`${product.name} n'a pas de variante disponible`);
+        }
       }
 
       const total = price * item.quantity;
       subtotal += total;
 
-      return {
+      orderItems.push({
         productId: product.id,
         variantId: item.variantId ?? null,
         productName: product.name,
@@ -191,8 +401,8 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
         price,
         quantity: item.quantity,
         total,
-      };
-    });
+      });
+    }
 
     const total = subtotal; // Pas de frais de livraison en V1
 
@@ -208,7 +418,7 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
       const newOrder = await tx.order.create({
         data: {
           tenantId: tenant.id,
-          customerEmail: `${data.customerPhone}@whatsapp.order`, // Email placeholder pour schéma
+          customerEmail: `${data.customerPhone}@whatsapp.order`,
           customerName: data.customerName,
           customerPhone: data.customerPhone,
           status: "PENDING",
@@ -221,7 +431,7 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
           taxAmount: 0,
           total,
           currency: tenant.currency,
-notes: data.notes ?? null,
+          notes: data.notes ?? null,
           items: {
             create: orderItems.map((item) => ({
               tenantId: tenant.id,

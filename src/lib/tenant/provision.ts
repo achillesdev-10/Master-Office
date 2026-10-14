@@ -35,7 +35,8 @@ export type TenantProvisioning = {
 };
 
 /** TTL (secondes) du cache de résolution host → slug pour sous-domaines plateforme. */
-export const PLATFORM_HOST_TTL = 300;
+/** 1 heure pour éviter les re-résolutions fréquentes, invalide sur mutation. */
+export const PLATFORM_HOST_TTL = 3600;
 
 export function tenantKey(slug: string): string {
   return `tenant:${slug}`;

@@ -20,19 +20,18 @@ import {
   tenantStepSchemas,
 } from "@/lib/validators/tenant";
 import { Button } from "@/components/ui/button";
-import { StepClient } from "./steps/step-client";
+import { StepOwner } from "./steps/step-owner";
 import { StepStore } from "./steps/step-store";
-import { StepConfiguration } from "./steps/step-configuration";
-import { StepTheme } from "./steps/step-theme";
-import { StepAppearance } from "./steps/step-appearance";
-import type { SlugStatus, ThemeOption, WizardValues } from "./types";
+import { StepThemeAppearance } from "./steps/step-theme-appearance";
+import { StepCustomDomain } from "./steps/step-custom-domain";
+import type { ThemeOption, WizardValues } from "./types";
 
 const STEPS = [
   {
-    key: "client",
-    label: "Client",
-    title: "Informations client",
-    description: "Qui possède cette boutique ?",
+    key: "owner",
+    label: "Propriétaire",
+    title: "Propriétaire de la boutique",
+    description: "Informations du responsable et contact WhatsApp.",
   },
   {
     key: "store",
@@ -41,22 +40,16 @@ const STEPS = [
     description: "Nom, adresse URL et description.",
   },
   {
-    key: "config",
-    label: "Configuration",
-    title: "Configuration régionale",
-    description: "Devise, langue et fuseau horaire.",
-  },
-  {
     key: "theme",
     label: "Thème",
-    title: "Thème de la boutique",
-    description: "Habillage visuel appliqué à la vitrine.",
+    title: "Thème et apparence",
+    description: "Habillage visuel, couleur et logo.",
   },
   {
-    key: "appearance",
-    label: "Apparence",
-    title: "Apparence de la marque",
-    description: "Logo et couleur primaire.",
+    key: "domain",
+    label: "Domaine",
+    title: "Domaine personnalisé (facultatif)",
+    description: "Ajoutez un domaine propre si vous le souhaitez.",
   },
 ] as const;
 
@@ -65,17 +58,15 @@ function buildDefaultValues(themes: ThemeOption[]): WizardValues {
     contactName: "",
     contactEmail: "",
     contactPhone: "",
-    contactCountry: "",
+    contactCountry: "CI",
     name: "",
     slug: "",
     slugTouched: false,
     description: "",
-    currency: "XOF",
-    language: "fr",
-    timezone: "Africa/Abidjan",
     themeId: themes[0]?.id ?? "",
-    logoUrl: "",
     primaryColor: "#4f46e5",
+    logoUrl: "",
+    customDomain: "",
   };
 }
 
@@ -99,7 +90,7 @@ function firstFailingStep(values: WizardValues): number {
 }
 
 /**
- * Wizard de création de boutique (module 6) :
+ * Wizard de création de boutique simplifié (module 6) :
  *  - état local React (aucun rechargement de page) ;
  *  - validation Zod à chaque étape ;
  *  - génération + contrôle d'unicité du slug en temps réel ;
@@ -112,7 +103,7 @@ export function TenantWizard({ themes }: { themes: ThemeOption[] }) {
   );
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [slugStatus, setSlugStatus] = useState<SlugStatus>("idle");
+  const [slugStatus, setSlugStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid">("idle");
   const [pending, startTransition] = useTransition();
 
   // Génération automatique du slug depuis le nom (tant qu'il n'est pas
@@ -293,7 +284,7 @@ export function TenantWizard({ themes }: { themes: ThemeOption[] }) {
 
         <div key={STEPS[step]?.key} className="animate-fade-in">
           {step === 0 && (
-            <StepClient values={values} onChange={patch} errors={errors} />
+            <StepOwner values={values} onChange={patch} errors={errors} />
           )}
           {step === 1 && (
             <StepStore
@@ -304,18 +295,15 @@ export function TenantWizard({ themes }: { themes: ThemeOption[] }) {
             />
           )}
           {step === 2 && (
-            <StepConfiguration values={values} onChange={patch} errors={errors} />
-          )}
-          {step === 3 && (
-            <StepTheme
+            <StepThemeAppearance
               values={values}
               onChange={patch}
               errors={errors}
               themes={themes}
             />
           )}
-          {step === 4 && (
-            <StepAppearance values={values} onChange={patch} errors={errors} />
+          {step === 3 && (
+            <StepCustomDomain values={values} onChange={patch} errors={errors} />
           )}
         </div>
       </div>

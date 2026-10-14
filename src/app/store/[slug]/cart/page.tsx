@@ -1,33 +1,38 @@
 "use client";
 
-import { useState, use } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShoppingCart, Trash2, Plus, Minus, ArrowRight, Gift, Loader2, MessageSquare } from "lucide-react";
+import { ShoppingCart, Trash2, Plus, Minus, ArrowRight, Gift, Loader2, MessageSquare, X } from "lucide-react";
 import { toast } from "sonner";
 import { formatNumber } from "@/lib/utils";
-import { submitOrderAction } from "@/lib/actions/storefront/checkout";
+import { getCartItemsDetail } from "@/lib/actions/storefront/checkout";
 import { useCart } from "@/components/storefront/cart-context";
 
 type Params = Promise<{ slug: string }>;
 
-interface CartItem {
+interface CartItemDetail {
   productId: string;
   variantId?: string;
   quantity: number;
-  lineTotal: number;
   product: {
     id: string;
     name: string;
     slug: string;
     images: { url: string; altText: string | null }[];
-    variants: { id: string; name: string; price: number }[];
+    basePrice: number;
+    compareAtPrice: number | null;
   };
   variant?: {
     id: string;
     name: string;
     price: number;
+    compareAtPrice: number | null;
+    inStock: boolean;
+    quantity: number;
   } | null;
+  lineTotal: number;
+  inStock: boolean;
 }
 
 function CartSkeleton() {
@@ -70,14 +75,39 @@ function CartPage({ slug }: { slug: string }) {
   const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [subtotal, setSubtotal] = useState(0);
+  const [cartDetails, setCartDetails] = useState<{ items: CartItemDetail[]; subtotal: number }>({ items: [], subtotal: 0 });
+  const [detailsLoading, setDetailsLoading] = useState(true);
 
-  // Calculer le sous-total à partir des items (lineTotal doit être calculé côté client)
-  useState(() => {
-    const total = items.reduce((sum, item) => sum + ((item as { lineTotal?: number }).lineTotal ?? 0), 0);
-    setSubtotal(total);
-    return total;
-  });
+  useEffect(() => {
+    if (!isLoaded) return;
+    const fetchDetails = async () => {
+      if (items.length === 0) {
+        setCartDetails({ items: [], subtotal: 0 });
+        setDetailsLoading(false);
+        return;
+      }
+      setDetailsLoading(true);
+      try {
+        const cartItems = items.map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+        }));
+        const result = await getCartItemsDetail(slug, cartItems);
+        if (result.success && result.items) {
+          setCartDetails({ items: result.items, subtotal: result.subtotal || 0 });
+        } else {
+          toast.error(result.error || "Erreur lors du chargement du panier");
+          setCartDetails({ items: [], subtotal: 0 });
+        }
+      } catch {
+        toast.error("Erreur lors du chargement du panier");
+      } finally {
+        setDetailsLoading(false);
+      }
+    };
+    fetchDetails();
+  }, [items, isLoaded, slug]);
 
   const handleUpdateQuantity = (productId: string, variantId: string | undefined, quantity: number) => {
     if (quantity <= 0) {
@@ -99,7 +129,7 @@ function CartPage({ slug }: { slug: string }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (items.length === 0) {
+    if (cartDetails.items.length === 0) {
       toast.error("Votre panier est vide");
       return;
     }
@@ -108,9 +138,16 @@ function CartPage({ slug }: { slug: string }) {
       return;
     }
 
+    // Check for out of stock items
+    const outOfStock = cartDetails.items.filter(item => !item.inStock);
+    if (outOfStock.length > 0) {
+      toast.error("Certains articles ne sont plus disponibles");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const orderItems = items.map((item) => ({
+      const orderItems = cartDetails.items.map((item) => ({
         productId: item.productId,
         variantId: item.variantId,
         quantity: item.quantity,
@@ -128,9 +165,7 @@ function CartPage({ slug }: { slug: string }) {
       if (result.success && result.whatsappUrl) {
         toast.success("Commande créée ! Redirection vers WhatsApp...");
         clearCart();
-        // Redirige vers WhatsApp
         window.location.href = result.whatsappUrl;
-        // Fallback : affiche aussi un bouton pour ouvrir WhatsApp
         setTimeout(() => {
           window.open(result.whatsappUrl!, "_blank");
         }, 100);
@@ -154,6 +189,15 @@ function CartPage({ slug }: { slug: string }) {
     );
   }
 
+  if (detailsLoading) {
+    return (
+      <div className="flex-1 py-8 px-4">
+        <CartSkeleton />
+        <CartSummarySkeleton />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 py-8 px-4">
       <div className="mx-auto max-w-5xl">
@@ -167,7 +211,7 @@ function CartPage({ slug }: { slug: string }) {
         <div className="lg:grid lg:grid-cols-3 lg:gap-8">
           {/* Liste des articles */}
           <div className="lg:col-span-2 space-y-4">
-            {items.length === 0 ? (
+            {cartDetails.items.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-6 rounded-xl border bg-muted/50 p-12 text-center">
                 <div className="rounded-full bg-muted p-4">
                   <ShoppingCart className="size-8 text-muted-foreground" aria-hidden />
@@ -188,39 +232,56 @@ function CartPage({ slug }: { slug: string }) {
               </div>
             ) : (
               <ul className="divide-y" role="list">
-                {items.map((item) => {
-                  // Pour l'affichage, on a besoin des données produit complètes
-                  // Dans une vraie app, on les récupèrerait via une query
+                {cartDetails.items.map((item) => {
+                  const price = item.variant?.compareAtPrice && item.variant.compareAtPrice > item.variant.price
+                    ? item.variant.compareAtPrice
+                    : (item.variant?.price ?? item.product.basePrice);
+                  const hasDiscount = item.variant?.compareAtPrice && item.variant.compareAtPrice > item.variant.price;
+                  const heroImage = item.product.images[0]?.url;
                   return (
                     <li key={`${item.productId}-${item.variantId || "default"}`} className="flex gap-4 rounded-lg border bg-card p-4">
                       <div className="relative h-24 w-24 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
-                        <div className="flex h-full items-center justify-center text-muted-foreground">
-                          <Gift className="size-8" aria-hidden />
-                        </div>
+                        {heroImage ? (
+                          <img
+                            src={heroImage}
+                            alt={item.product.images[0]?.altText || item.product.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-muted-foreground">
+                            <Gift className="size-8" aria-hidden />
+                          </div>
+                        )}
+                        {!item.inStock && (
+                          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50 text-white text-xs font-medium">
+                            Rupture
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
                             <Link
-                              href={`/store/${slug}/products/${item.productId}`}
-                              className="font-medium hover:underline"
+                              href={`/store/${slug}/products/${item.product.slug}`}
+                              className="font-medium hover:underline truncate block"
                             >
-                              Produit {item.productId.slice(-6)}
+                              {item.product.name}
                             </Link>
-                            {item.variantId && (
+                            {item.variant && (
                               <p className="mt-1 text-sm text-muted-foreground">
-                                Variante {item.variantId.slice(-6)}
+                                {item.variant.name}
                               </p>
                             )}
                             <p className="mt-2 font-medium">
-                              {formatNumber(0)} FCFA
+                              {formatNumber(price)} FCFA
                             </p>
                           </div>
                           <button
                             onClick={() => handleRemove(item.productId, item.variantId)}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
                             aria-label="Retirer l'article"
+                            disabled={!item.inStock}
                           >
                             <Trash2 className="size-4" aria-hidden />
                           </button>
@@ -230,8 +291,8 @@ function CartPage({ slug }: { slug: string }) {
                           <div className="flex items-center gap-2 rounded-lg border bg-background">
                             <button
                               onClick={() => handleUpdateQuantity(item.productId, item.variantId, item.quantity - 1)}
-                              disabled={item.quantity <= 1}
-                              className="flex h-9 w-9 items-center justify-center rounded-l-lg text-muted-foreground hover:bg-muted disabled:opacity-50"
+                              disabled={item.quantity <= 1 || !item.inStock}
+                              className="flex h-9 w-9 items-center justify-center rounded-l-lg text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                               aria-label="Diminuer"
                             >
                               <Minus className="size-4" />
@@ -240,25 +301,31 @@ function CartPage({ slug }: { slug: string }) {
                               type="number"
                               value={item.quantity}
                               onChange={(e) => {
-                                const val = Math.max(1, parseInt(e.target.value) || 1);
+                                const val = Math.max(1, Math.min(parseInt(e.target.value) || 1, 99));
                                 handleUpdateQuantity(item.productId, item.variantId, val);
                               }}
                               className="h-9 w-12 border-0 bg-transparent text-center text-sm font-medium focus:outline-none"
                               min={1}
+                              max={99}
+                              disabled={!item.inStock}
                             />
                             <button
                               onClick={() => handleUpdateQuantity(item.productId, item.variantId, item.quantity + 1)}
-                              className="flex h-9 w-9 items-center justify-center rounded-r-lg text-muted-foreground hover:bg-muted"
+                              disabled={!item.inStock}
+                              className="flex h-9 w-9 items-center justify-center rounded-r-lg text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                               aria-label="Augmenter"
                             >
                               <Plus className="size-4" />
                             </button>
                           </div>
+                          {!item.inStock && (
+                            <span className="text-sm text-destructive">Indisponible</span>
+                          )}
                         </div>
 
                         <div className="flex items-center justify-between">
                           <span className="font-semibold">
-                            {formatNumber(0)} FCFA
+                            {formatNumber(item.lineTotal)} FCFA
                           </span>
                         </div>
                       </div>
@@ -268,7 +335,7 @@ function CartPage({ slug }: { slug: string }) {
               </ul>
             )}
 
-            {items.length > 0 && (
+            {cartDetails.items.length > 0 && (
               <div className="mt-4 flex justify-end">
                 <button
                   onClick={handleClear}
@@ -288,7 +355,7 @@ function CartPage({ slug }: { slug: string }) {
               <div className="space-y-2 text-sm border-t pt-4">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Sous-total</span>
-                  <span>{formatNumber(subtotal)} FCFA</span>
+                  <span>{formatNumber(cartDetails.subtotal)} FCFA</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Livraison</span>
@@ -299,7 +366,7 @@ function CartPage({ slug }: { slug: string }) {
               <div className="border-t pt-4">
                 <div className="flex justify-between text-lg font-semibold">
                   <span>Total</span>
-                  <span>{formatNumber(subtotal)} FCFA</span>
+                  <span>{formatNumber(cartDetails.subtotal)} FCFA</span>
                 </div>
               </div>
 
@@ -378,7 +445,7 @@ function CartPage({ slug }: { slug: string }) {
 
               <button
                 type="submit"
-                disabled={submitting || items.length === 0}
+                disabled={submitting || cartDetails.items.length === 0 || cartDetails.items.some(i => !i.inStock)}
                 className="w-full flex h-12 items-center justify-center gap-2 rounded-lg bg-green-600 text-white font-medium transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? (
@@ -406,12 +473,28 @@ function CartPage({ slug }: { slug: string }) {
   );
 }
 
+async function submitOrderAction(input: {
+  slug: string;
+  items: { productId: string; variantId?: string; quantity: number }[];
+  customerName: string;
+  customerPhone: string;
+  address: string;
+  notes?: string;
+}) {
+  const response = await fetch("/api/storefront/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return response.json();
+}
+
 export default function CartPageWrapper({
   params,
 }: {
   params: Params;
 }) {
-  const { slug } = use(params);
+  const { slug } = await params;
   return (
     <div className="flex-1 py-8 px-4">
       <CartPage slug={slug} />

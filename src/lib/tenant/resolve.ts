@@ -13,8 +13,8 @@ import {
  * la validation finale (slug, statut) passe toujours par ici.
  */
 
-/** TTL du cache mémoire par instance de serveur. */
-const MEMORY_TTL_MS = 5 * 60_000;
+/** TTL du cache mémoire par instance de serveur (1 heure, aligné sur Redis). */
+const MEMORY_TTL_MS = 60 * 60_000;
 
 type CacheEntry = {
   value: TenantProvisioning | null;

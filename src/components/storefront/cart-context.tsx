@@ -28,7 +28,12 @@ function getCartFromStorage(slug: string): CartItem[] {
   if (typeof window === "undefined") return [];
   try {
     const stored = localStorage.getItem(getStorageKey(slug));
-    return stored ? JSON.parse(stored) : [];
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is CartItem =>
+      item && typeof item.productId === "string" && typeof item.quantity === "number" && item.quantity > 0
+    );
   } catch {
     return [];
   }
@@ -36,7 +41,11 @@ function getCartFromStorage(slug: string): CartItem[] {
 
 function saveCartToStorage(slug: string, items: CartItem[]): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(getStorageKey(slug), JSON.stringify(items));
+  try {
+    localStorage.setItem(getStorageKey(slug), JSON.stringify(items));
+  } catch {
+    // Ignore localStorage errors (quota, privacy mode, etc.)
+  }
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -53,11 +62,13 @@ export function CartProvider({ children, slug }: { children: ReactNode; slug: st
   const saveAndNotify = useCallback((newItems: CartItem[]) => {
     setItems(newItems);
     saveCartToStorage(slug, newItems);
-    // Dispatch custom event for other components to react
-    window.dispatchEvent(new CustomEvent("cart-update", { detail: { slug, items: newItems } }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("cart-update", { detail: { slug, items: newItems } }));
+    }
   }, [slug]);
 
   const addItem = useCallback((productId: string, variantId?: string, quantity = 1) => {
+    if (quantity <= 0) return;
     setItems((current) => {
       const existingIndex = current.findIndex(
         (item) => item.productId === productId && item.variantId === variantId
@@ -69,11 +80,11 @@ export function CartProvider({ children, slug }: { children: ReactNode; slug: st
         if (existingItem) {
           newItems[existingIndex] = {
             ...existingItem,
-            quantity: existingItem.quantity + quantity,
+            quantity: Math.min(existingItem.quantity + quantity, 99),
           };
         }
       } else {
-        newItems = [...current, { productId, variantId, quantity }];
+        newItems = [...current, { productId, variantId, quantity: Math.min(quantity, 99) }];
       }
       saveAndNotify(newItems);
       return newItems;
@@ -98,7 +109,7 @@ export function CartProvider({ children, slug }: { children: ReactNode; slug: st
     setItems((current) => {
       const newItems = current.map((item) =>
         item.productId === productId && item.variantId === variantId
-          ? { ...item, quantity }
+          ? { ...item, quantity: Math.min(quantity, 99) }
           : item
       );
       saveAndNotify(newItems);
@@ -109,7 +120,9 @@ export function CartProvider({ children, slug }: { children: ReactNode; slug: st
   const clearCart = useCallback(() => {
     setItems([]);
     saveCartToStorage(slug, []);
-    window.dispatchEvent(new CustomEvent("cart-update", { detail: { slug, items: [] } }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("cart-update", { detail: { slug, items: [] } }));
+    }
   }, [slug]);
 
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);

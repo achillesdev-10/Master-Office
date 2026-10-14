@@ -31,6 +31,8 @@ const RESERVED_SUBDOMAINS = new Set([
   "smtp",
   "cdn",
   "staging",
+  "test",
+  "preview",
 ]);
 
 /** Routes servies telles quelles, même sur un sous-domaine. */
@@ -53,7 +55,7 @@ function isStoreHost(host: string, rootDomain: string): boolean {
   if (!host) return false;
   const normalizedHost = host.toLowerCase().split(":")[0] ?? "";
   if (!normalizedHost) return false;
-  
+
   // Sous-domaine plateforme : {slug}.{rootDomain} ou www.{slug}.{rootDomain}
   if (normalizedHost.endsWith(`.${rootDomain}`)) {
     const prefix = normalizedHost.slice(0, -(rootDomain.length + 1));
@@ -64,7 +66,7 @@ function isStoreHost(host: string, rootDomain: string): boolean {
       }
     }
   }
-  
+
   // Note: Les domaines custom sont vérifiés via Redis dans getTenantSlugFromHost
   return false;
 }
@@ -105,7 +107,7 @@ export default clerkMiddleware(async (auth, req) => {
   const host = (req.headers.get("host") ?? "").toLowerCase().split(":")[0] ?? "";
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "maboutique.com";
   const appHost = new URL(process.env.NEXT_PUBLIC_APP_URL ?? `https://${rootDomain}`).host.toLowerCase();
-  const isVercelHost = host.endsWith(".vercel.app");
+  const isVercelPreviewHost = host.endsWith(".vercel.app");
   const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
 
   // 1. Détection domaine boutique (plateforme ou custom via Redis)
@@ -133,7 +135,7 @@ export default clerkMiddleware(async (auth, req) => {
   if (!isStoreDomain) {
     // Laisse passer les requêtes sur l'hôte principal, Vercel, localhost
     const isAppHost = host === appHost;
-    if (!isAppHost && !isVercelHost && !isLocalhost) {
+    if (!isAppHost && !isVercelPreviewHost && !isLocalhost) {
       // Hôte inconnu, on laisse passer (le layout store fera le 404)
     }
   }

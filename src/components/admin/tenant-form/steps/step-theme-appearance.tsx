@@ -3,11 +3,11 @@ import { ImagePlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { uploadTenantLogo } from "@/lib/actions/tenants";
 import { Field } from "../field";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import type { StepProps } from "../types";
 
-/** Étape 7 — Apparence : logo (Vercel Blob) + couleur primaire. */
-export function StepAppearance({ values, onChange, errors }: StepProps) {
+/** Étape 3 — Thème & Apparence : thème, logo (Vercel Blob), couleur primaire. */
+export function StepThemeAppearance({ values, onChange, errors, themes }: StepProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -34,7 +34,22 @@ export function StepAppearance({ values, onChange, errors }: StepProps) {
   };
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="space-y-4">
+      <Field label="Thème" htmlFor="themeId" error={errors.themeId}>
+        <Select
+          id="themeId"
+          value={values.themeId}
+          onChange={(event) => onChange({ themeId: event.target.value })}
+        >
+          <option value="">Sélectionnez un thème…</option>
+          {themes?.map((theme) => (
+            <option key={theme.id} value={theme.id}>
+              {theme.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
       <Field
         label="Logo"
         htmlFor="logoFile"

@@ -1,46 +1,62 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Store, Package, ShoppingBag, Settings, ArrowRight, Plus, TrendingUp } from "lucide-react";
+import { Store, Package, ShoppingBag, Settings, ArrowRight, Plus, TrendingUp, Eye } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { requireTenantAccess, getCurrentUser } from "@/lib/auth/permissions";
+import { requireTenantAccess } from "@/lib/auth/permissions";
 import { getTenantById } from "@/lib/db/queries/tenants";
 import { getStorefrontProducts } from "@/lib/db/queries/storefront/products";
 import { getOrdersByTenant } from "@/lib/db/queries/tenant-detail";
-import { getTenantMembers } from "@/lib/db/queries/tenant-detail";
+import { getCategories } from "@/lib/db/queries/storefront/products";
+import { prisma } from "@/lib/db/prisma";
 
 async function getDashboardData(tenantId: string) {
-  const [tenant, products, orders] = await Promise.all([
+  const [tenant, products, orders, categories] = await Promise.all([
     getTenantById(tenantId),
     getStorefrontProducts(tenantId, { pageSize: 5, sort: "newest" }),
     getOrdersByTenant(tenantId, { pageSize: 5 }),
+    getCategories(tenantId),
   ]);
 
-  return { tenant, products: products.items, orders: orders.items };
+  const allProducts = await prisma.product.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { isActive: true, variants: { select: { inventory: { select: { quantity: true } } } } },
+  });
+
+  let unavailableCount = 0;
+  for (const p of allProducts) {
+    if (!p.isActive) {
+      unavailableCount++;
+    } else {
+      const hasStock = p.variants.some(v => (v.inventory?.quantity ?? 0) > 0);
+      if (!hasStock) {
+        unavailableCount++;
+      }
+    }
+  }
+
+  return { 
+    tenant, 
+    products: products.items, 
+    orders: orders.items,
+    categories,
+    totalProducts: products.total,
+    unavailableProducts: unavailableCount,
+  };
 }
 
-export default async function DashboardPage() {
-  const user = await getCurrentUser();
-  
-  if (!user) {
-    return null;
-  }
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tenant?: string }>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const tenantId = resolvedSearchParams.tenant;
 
-  // Récupère les memberships de l'utilisateur
-  const memberships = await getTenantMembers(user.id);
-  
-  if (memberships.length === 0) {
+  if (!tenantId) {
     return null;
   }
-
-  // Pour l'instant, on prend le premier tenant (ADMIN ou MEMBER)
-  // Dans une vraie app, on aurait un sélecteur dans le shell
-  const primaryMembership = memberships.find((m) => m.role === "ADMIN") || memberships[0];
-  if (!primaryMembership) {
-    return null;
-  }
-  const tenantId = primaryMembership.tenantId;
 
   await requireTenantAccess(tenantId);
   const data = await getDashboardData(tenantId);
@@ -49,24 +65,38 @@ export default async function DashboardPage() {
     return null;
   }
 
-  const currentTenant = memberships.find((m) => m.tenantId === tenantId);
-
   const stats = [
     {
       label: "Produits",
-      value: formatNumber(data.products.length),
+      value: formatNumber(data.totalProducts),
       icon: Package,
-      href: "/dashboard/products",
+      href: `/dashboard/products?tenant=${tenantId}`,
       color: "text-blue-600",
       bg: "bg-blue-100",
+    },
+    {
+      label: "Indisponibles",
+      value: formatNumber(data.unavailableProducts),
+      icon: Eye,
+      href: `/dashboard/products?tenant=${tenantId}&status=inactive`,
+      color: "text-amber-600",
+      bg: "bg-amber-100",
     },
     {
       label: "Commandes (30j)",
       value: formatNumber(data.orders.length),
       icon: ShoppingBag,
-      href: "/dashboard/orders",
+      href: `/dashboard/orders?tenant=${tenantId}`,
       color: "text-green-600",
       bg: "bg-green-100",
+    },
+    {
+      label: "Catégories",
+      value: formatNumber(data.categories.reduce((acc, c) => acc + 1 + c.children.length, 0)),
+      icon: ShoppingBag,
+      href: `/dashboard/categories?tenant=${tenantId}`,
+      color: "text-purple-600",
+      bg: "bg-purple-100",
     },
     {
       label: "Boutique en ligne",
@@ -91,7 +121,7 @@ export default async function DashboardPage() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline">
-            <Link href="/dashboard/products">
+            <Link href={`/dashboard/products/new?tenant=${tenantId}`}>
               <Plus className="size-4" aria-hidden />
               Ajouter un produit
             </Link>
@@ -106,7 +136,7 @@ export default async function DashboardPage() {
       </header>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {stats.map((stat) => (
           <Card key={stat.label} className="hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between">
@@ -130,7 +160,7 @@ export default async function DashboardPage() {
       {/* Actions rapides */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Link
-          href="/dashboard/products"
+          href={`/dashboard/products?tenant=${tenantId}`}
           className="group relative rounded-xl border bg-card p-6 hover:border-primary/50 hover:shadow-md transition-all"
         >
           <div className="flex items-center justify-between mb-4">
@@ -139,12 +169,12 @@ export default async function DashboardPage() {
           </div>
           <h3 className="text-lg font-semibold">Produits</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Gérer votre catalogue
+            Gérer votre catalogue ({formatNumber(data.totalProducts)})
           </p>
         </Link>
 
         <Link
-          href="/dashboard/categories"
+          href={`/dashboard/categories?tenant=${tenantId}`}
           className="group relative rounded-xl border bg-card p-6 hover:border-primary/50 hover:shadow-md transition-all"
         >
           <div className="flex items-center justify-between mb-4">
@@ -158,7 +188,7 @@ export default async function DashboardPage() {
         </Link>
 
         <Link
-          href="/dashboard/orders"
+          href={`/dashboard/orders?tenant=${tenantId}`}
           className="group relative rounded-xl border bg-card p-6 hover:border-primary/50 hover:shadow-md transition-all"
         >
           <div className="flex items-center justify-between mb-4">
@@ -172,7 +202,7 @@ export default async function DashboardPage() {
         </Link>
 
         <Link
-          href="/dashboard/settings"
+          href={`/dashboard/settings?tenant=${tenantId}`}
           className="group relative rounded-xl border bg-card p-6 hover:border-primary/50 hover:shadow-md transition-all"
         >
           <div className="flex items-center justify-between mb-4">
@@ -190,7 +220,7 @@ export default async function DashboardPage() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Produits récents</h2>
-          <Link href="/dashboard/products" className="text-sm text-primary hover:underline">
+          <Link href={`/dashboard/products?tenant=${tenantId}`} className="text-sm text-primary hover:underline">
             Voir tout →
           </Link>
         </div>
@@ -200,7 +230,7 @@ export default async function DashboardPage() {
               <Package className="size-12 text-muted-foreground mx-auto mb-4" aria-hidden />
               <h3 className="text-lg font-medium">Aucun produit pour le moment</h3>
               <p className="text-sm text-muted-foreground mt-1">Ajoutez votre premier produit pour commencer à vendre.</p>
-              <Link href="/dashboard/products" className="mt-4 inline-flex items-center gap-2">
+              <Link href={`/dashboard/products/new?tenant=${tenantId}`} className="mt-4 inline-flex items-center gap-2">
                 <Button>
                   <Plus className="size-4" aria-hidden />
                   Ajouter un produit
@@ -223,7 +253,7 @@ export default async function DashboardPage() {
                   {data.products.slice(0, 5).map((product) => (
                     <tr key={product.id} className="border-b last:border-b-0 hover:bg-muted/50">
                       <td className="px-4 py-3">
-                        <Link href={`/dashboard/products/${product.id}`} className="font-medium hover:underline">
+                        <Link href={`/dashboard/products/${product.id}?tenant=${tenantId}`} className="font-medium hover:underline">
                           {product.name}
                         </Link>
                       </td>
@@ -231,7 +261,7 @@ export default async function DashboardPage() {
                       <td className="px-4 py-3">
                         {(() => {
                           const variants = product.variants;
-                          if (!variants) return <span className="text-destructive">Rupture</span>;
+                          if (!variants || variants.length === 0) return <span className="text-destructive">Rupture</span>;
                           const hasStock = variants.some((v: { quantity?: number }) => (v.quantity ?? 0) > 0);
                           return hasStock ? (
                             <span className="text-emerald-600">En stock</span>
@@ -252,7 +282,7 @@ export default async function DashboardPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link
-                          href={`/dashboard/products/${product.id}`}
+                          href={`/dashboard/products/${product.id}?tenant=${tenantId}`}
                           className="text-primary hover:underline"
                         >
                           Modifier
@@ -271,7 +301,7 @@ export default async function DashboardPage() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Commandes récentes</h2>
-          <Link href="/dashboard/orders" className="text-sm text-primary hover:underline">
+          <Link href={`/dashboard/orders?tenant=${tenantId}`} className="text-sm text-primary hover:underline">
             Voir tout →
           </Link>
         </div>
@@ -304,14 +334,22 @@ export default async function DashboardPage() {
                       <td className="px-4 py-3">
                         <span className={cn(
                           "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                          order.status === "NEW" ? "bg-blue-100 text-blue-700" :
+                          order.status === "PENDING" ? "bg-blue-100 text-blue-700" :
                           order.status === "CONFIRMED" ? "bg-green-100 text-green-700" :
+                          order.status === "PROCESSING" ? "bg-purple-100 text-purple-700" :
+                          order.status === "SHIPPED" ? "bg-amber-100 text-amber-700" :
+                          order.status === "DELIVERED" ? "bg-emerald-100 text-emerald-700" :
                           order.status === "CANCELLED" ? "bg-destructive/10 text-destructive" :
+                          order.status === "REFUNDED" ? "bg-muted text-muted-foreground" :
                           "bg-amber-100 text-amber-700"
                         )}>
-                          {order.status === "NEW" ? "Nouvelle" :
+                          {order.status === "PENDING" ? "Nouvelle" :
                            order.status === "CONFIRMED" ? "Confirmée" :
+                           order.status === "PROCESSING" ? "En préparation" :
+                           order.status === "SHIPPED" ? "Expédiée" :
+                           order.status === "DELIVERED" ? "Livrée" :
                            order.status === "CANCELLED" ? "Annulée" :
+                           order.status === "REFUNDED" ? "Remboursée" :
                            "En cours"}
                         </span>
                       </td>
@@ -319,7 +357,7 @@ export default async function DashboardPage() {
                         {new Date(order.createdAt).toLocaleDateString("fr-FR")}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Link href={`/dashboard/orders/${order.id}`} className="text-primary hover:underline">
+                        <Link href={`/dashboard/orders/${order.id}?tenant=${tenantId}`} className="text-primary hover:underline">
                           Voir
                         </Link>
                       </td>

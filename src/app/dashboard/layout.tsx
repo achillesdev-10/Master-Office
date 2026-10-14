@@ -11,7 +11,7 @@ export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
-}) {
+}, { params }: { params: Promise<{ tenant?: string }> }) {
   const user = await getCurrentUser();
   
   if (!user) {
@@ -25,13 +25,24 @@ export default async function DashboardLayout({
     redirect("/unauthorized");
   }
 
-  // Pour l'instant, on prend le premier tenant (ADMIN ou MEMBER)
-  // Dans une vraie app, on aurait un sélecteur dans le shell
-  const primaryMembership = memberships.find((m) => m.role === "ADMIN") || memberships[0];
-  if (!primaryMembership) {
-    redirect("/unauthorized");
+  const resolvedParams = await params;
+  const selectedTenantId = resolvedParams.tenant;
+  
+  // Détermine le tenant actif : paramètre URL > premier tenant ADMIN > premier tenant
+  let tenantId: string;
+  if (selectedTenantId) {
+    const membership = memberships.find(m => m.tenantId === selectedTenantId);
+    if (!membership) {
+      redirect("/unauthorized");
+    }
+    tenantId = selectedTenantId;
+  } else {
+    const primaryMembership = memberships.find((m) => m.role === "ADMIN") || memberships[0];
+    if (!primaryMembership) {
+      redirect("/unauthorized");
+    }
+    tenantId = primaryMembership.tenantId;
   }
-  const tenantId = primaryMembership.tenantId;
 
   // Valide l'accès au tenant
   await requireTenantAccess(tenantId);

@@ -48,6 +48,9 @@ export type CategoryListItem = {
   description: string | null;
   imageUrl: string | null;
   productCount: number;
+  isActive: boolean;
+  parentId: string | null;
+  sortOrder: number;
   children: CategoryListItem[];
 };
 
@@ -221,6 +224,9 @@ export async function getStorefrontCategories(
       slug: true,
       description: true,
       imageUrl: true,
+      isActive: true,
+      parentId: true,
+      sortOrder: true,
       _count: { select: { products: { where: { isActive: true, deletedAt: null } } } },
       children: {
         where: { isActive: true },
@@ -231,6 +237,9 @@ export async function getStorefrontCategories(
           slug: true,
           description: true,
           imageUrl: true,
+          isActive: true,
+          parentId: true,
+          sortOrder: true,
           _count: {
             select: { products: { where: { isActive: true, deletedAt: null } } },
           },
@@ -246,6 +255,9 @@ export async function getStorefrontCategories(
     description: c.description,
     imageUrl: c.imageUrl,
     productCount: c._count.products,
+    isActive: c.isActive,
+    parentId: c.parentId,
+    sortOrder: c.sortOrder,
     children: c.children.map((child) => ({
       id: child.id,
       name: child.name,
@@ -253,9 +265,70 @@ export async function getStorefrontCategories(
       description: child.description,
       imageUrl: child.imageUrl,
       productCount: child._count.products,
+      isActive: child.isActive,
+      parentId: child.parentId,
+      sortOrder: child.sortOrder,
       children: [],
     })),
   }));
+}
+
+export async function getCategories(
+  tenantId: string
+): Promise<CategoryListItem[]> {
+  const categories = await prisma.category.findMany({
+    where: { tenantId, deletedAt: null },
+    orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      imageUrl: true,
+      isActive: true,
+      parentId: true,
+      sortOrder: true,
+      _count: { select: { products: { where: { deletedAt: null } } } },
+    },
+  });
+
+  const categoryMap = new Map<string, CategoryListItem>();
+  const rootCategories: CategoryListItem[] = [];
+
+  for (const cat of categories) {
+    const categoryItem: CategoryListItem = {
+      id: cat.id,
+      name: cat.name,
+      slug: cat.slug,
+      description: cat.description,
+      imageUrl: cat.imageUrl,
+      productCount: cat._count.products,
+      isActive: cat.isActive,
+      parentId: cat.parentId,
+      sortOrder: cat.sortOrder,
+      children: [],
+    };
+    categoryMap.set(cat.id, categoryItem);
+  }
+
+  for (const cat of categories) {
+    const categoryItem = categoryMap.get(cat.id)!;
+    if (cat.parentId) {
+      const parent = categoryMap.get(cat.parentId);
+      if (parent) {
+        parent.children.push(categoryItem);
+      }
+    } else {
+      rootCategories.push(categoryItem);
+    }
+  }
+
+  rootCategories.sort((a, b) => a.sortOrder - b.sortOrder);
+  for (const cat of rootCategories) {
+    cat.children.sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  return rootCategories;
 }
 
 export async function getStorefrontProductBySlug(

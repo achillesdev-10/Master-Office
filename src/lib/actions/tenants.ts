@@ -104,6 +104,19 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
       });
     }
 
+    // Vérifier le domaine personnalisé s'il est fourni
+    if (data.customDomain) {
+      const existingDomain = await prisma.tenantDomain.findUnique({
+        where: { domain: data.customDomain },
+        select: { id: true },
+      });
+      if (existingDomain) {
+        return failure("Ce domaine personnalisé est déjà utilisé.", {
+          customDomain: "Ce domaine est déjà utilisé.",
+        });
+      }
+    }
+
     const tenant = await prisma.$transaction(async (tx) => {
       const created = await tx.tenant.create({
         data: {
@@ -111,9 +124,9 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
           slug: data.slug,
           status: TenantStatus.ACTIVE,
           description: data.description || null,
-          currency: data.currency,
-          language: data.language,
-          timezone: data.timezone,
+          currency: "XOF",
+          language: "fr",
+          timezone: "Africa/Abidjan",
           primaryColor: data.primaryColor,
           logoUrl: data.logoUrl || null,
           contactName: data.contactName,
@@ -131,6 +144,18 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
           tenantId: created.id,
         },
       });
+
+      // Domaine personnalisé si fourni
+      if (data.customDomain) {
+        await tx.tenantDomain.create({
+          data: {
+            domain: data.customDomain,
+            tenantId: created.id,
+            sslStatus: "PENDING",
+            verified: false,
+          },
+        });
+      }
 
       await ensureTenantAdmin(tx, created.id, data.contactEmail, created.slug);
 
@@ -150,19 +175,22 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
       });
     }
 
+    const allDomains = [`${tenant.slug}.${getRootDomain()}`];
+    if (data.customDomain) allDomains.push(data.customDomain);
+
     await provisionTenant({
       id: tenant.id,
       name: tenant.name,
       slug: tenant.slug,
       status: tenant.status,
-      currency: tenant.currency,
-      language: tenant.language,
-      timezone: tenant.timezone,
+      currency: "XOF",
+      language: "fr",
+      timezone: "Africa/Abidjan",
       primaryColor: tenant.primaryColor,
       logoUrl: tenant.logoUrl,
       description: tenant.description,
       themeId: tenant.themeId,
-      domains: [`${tenant.slug}.${getRootDomain()}`],
+      domains: allDomains,
       rootDomain: getRootDomain(),
     });
     invalidateTenantResolveCache(tenant.slug);
@@ -177,6 +205,7 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
         slug: tenant.slug,
         themeId: data.themeId,
         clerkOrgCreated: clerkOrgId !== null,
+        customDomain: data.customDomain || null,
       },
     });
 

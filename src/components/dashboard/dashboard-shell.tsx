@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { Menu, X, Store, Package, ShoppingBag, Settings, ChevronDown, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,11 +40,19 @@ const NAV_ITEMS = [
 
 export function DashboardShell({ children, tenantId, userMemberships }: DashboardShellProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const currentTenant = userMemberships.find((m) => m.tenantId === tenantId);
   const otherMemberships = userMemberships.filter((m) => m.tenantId !== tenantId);
+
+  const handleTenantChange = (newTenantId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tenant", newTenantId);
+    router.push(`${pathname}?${params.toString()}`);
+  };
 
   return (
     <div className="flex h-screen bg-background">
@@ -67,7 +75,7 @@ export function DashboardShell({ children, tenantId, userMemberships }: Dashboar
         <div className="flex h-full flex-col">
           {/* Header sidebar */}
           <div className="flex h-16 items-center gap-3 border-b px-4">
-            <Link href="/dashboard" className="flex items-center gap-2">
+            <Link href={`/dashboard?tenant=${tenantId}`} className="flex items-center gap-2">
               <Store className="size-6 text-primary" aria-hidden />
               <span className="font-semibold truncate">Mon Dashboard</span>
             </Link>
@@ -81,7 +89,7 @@ export function DashboardShell({ children, tenantId, userMemberships }: Dashboar
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={`${item.href}?tenant=${tenantId}`}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isActive
@@ -103,7 +111,7 @@ export function DashboardShell({ children, tenantId, userMemberships }: Dashboar
               <p className="text-xs font-medium text-muted-foreground mb-2">Mes boutiques</p>
               <select
                 value={tenantId}
-                onChange={(e) => window.location.href = `/dashboard?tenant=${e.target.value}`}
+                onChange={(e) => handleTenantChange(e.target.value)}
                 className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 {userMemberships.map((m) => (
@@ -117,13 +125,16 @@ export function DashboardShell({ children, tenantId, userMemberships }: Dashboar
 
           {/* Footer sidebar */}
           <div className="border-t p-3">
-            <Link
-              href="/store/[slug]"
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Package className="size-4" aria-hidden />
-              Voir la boutique
-            </Link>
+            {currentTenant?.tenant?.slug && (
+              <Link
+                href={`/store/${currentTenant.tenant.slug}`}
+                target="_blank"
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Package className="size-4" aria-hidden />
+                Voir la boutique
+              </Link>
+            )}
           </div>
         </div>
       </aside>
@@ -161,7 +172,7 @@ export function DashboardShell({ children, tenantId, userMemberships }: Dashboar
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings" className="flex w-full items-center gap-2 px-2 py-1.5 text-sm">
+                <Link href={`/dashboard/settings?tenant=${tenantId}`} className="flex w-full items-center gap-2 px-2 py-1.5 text-sm">
                   <Settings className="size-4" aria-hidden />
                   Paramètres
                 </Link>

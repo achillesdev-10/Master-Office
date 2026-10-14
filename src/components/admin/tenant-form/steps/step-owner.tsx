@@ -3,11 +3,11 @@ import { Field } from "../field";
 import { Input, Select } from "@/components/ui/input";
 import type { StepProps } from "../types";
 
-/** Étape 1 — Client : nom, email, téléphone, pays. */
-export function StepClient({ values, onChange, errors }: StepProps) {
+/** Étape 1 — Propriétaire : nom, email, téléphone WhatsApp, pays. */
+export function StepOwner({ values, onChange, errors }: StepProps) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      <Field label="Nom du client" htmlFor="contactName" error={errors.contactName}>
+      <Field label="Nom du propriétaire" htmlFor="contactName" error={errors.contactName}>
         <Input
           id="contactName"
           autoComplete="name"
@@ -34,16 +34,16 @@ export function StepClient({ values, onChange, errors }: StepProps) {
       </Field>
 
       <Field
-        label="Téléphone"
+        label="Numéro WhatsApp"
         htmlFor="contactPhone"
         error={errors.contactPhone}
-        hint="Optionnel"
+        hint="Format: 07 01 02 03 04 ou +225 07 01 02 03 04"
       >
         <Input
           id="contactPhone"
           type="tel"
           autoComplete="tel"
-          placeholder="+33 6 12 34 56 78"
+          placeholder="07 01 02 03 04"
           value={values.contactPhone}
           onChange={(event) => onChange({ contactPhone: event.target.value })}
         />
