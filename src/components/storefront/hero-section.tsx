@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ShoppingBag, Truck, Shield, Headphones } from "lucide-react";
+import { useStore, storeHref } from "./store-context";
 
 interface HeroSectionProps {
   tenant: {
@@ -16,6 +17,7 @@ interface HeroSectionProps {
 
 export function HeroSection({ tenant }: HeroSectionProps) {
   const primaryColor = tenant.primaryColor ?? "#111827";
+  const { slug } = useStore();
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-b from-muted/50 to-transparent">
@@ -34,14 +36,14 @@ export function HeroSection({ tenant }: HeroSectionProps) {
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <Link
-                href={`/store/${tenant.slug}/products`}
+                href={storeHref("", "/products")}
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
               >
                 Voir la boutique
                 <ArrowRight className="size-4" aria-hidden />
               </Link>
               <Link
-                href={`/store/${tenant.slug}/products?category=nouveautes`}
+                href={storeHref("", "/products?category=nouveautes")}
                 className="inline-flex items-center gap-2 rounded-lg border bg-background px-6 py-3 text-base font-medium hover:bg-muted transition-colors"
               >
                 Nouveautés

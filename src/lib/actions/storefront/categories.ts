@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/db/prisma";
-import { requireTenantAccess } from "@/lib/auth/permissions";
+import { assertTenantAccess } from "@/lib/auth/permissions";
 import { logAction } from "@/lib/audit/log";
 import { failure, type ActionResult } from "@/lib/actions/types";
 import { flattenErrors } from "@/lib/validators/tenant";
@@ -39,7 +39,6 @@ const reorderCategoriesSchema = z.object({
 
 export async function createCategory(input: unknown): Promise<ActionResult & { categoryId?: string }> {
   try {
-    await requireTenantAccess("");
     const parsed = createCategorySchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -48,7 +47,8 @@ export async function createCategory(input: unknown): Promise<ActionResult & { c
     const data = parsed.data;
     const { tenantId, ...categoryData } = data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     // Check slug uniqueness within tenant
     const existingSlug = await prisma.category.findFirst({
@@ -85,14 +85,14 @@ export async function createCategory(input: unknown): Promise<ActionResult & { c
 
     await logAction({
       action: "category.create",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Category",
       entityId: category.id,
       metadata: { name: category.name, slug: category.slug },
     });
 
-    revalidatePath("/dashboard/categories");
+    revalidatePath(`/dashboard/${tenantId}/categories`);
     return { success: true, categoryId: category.id };
   } catch (error) {
     console.error("[categories] create error:", error);
@@ -102,7 +102,6 @@ export async function createCategory(input: unknown): Promise<ActionResult & { c
 
 export async function updateCategory(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = updateCategorySchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -111,7 +110,8 @@ export async function updateCategory(input: unknown): Promise<ActionResult> {
     const data = parsed.data;
     const { id, tenantId, ...updateData } = data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     // Check slug uniqueness if changing
     if (updateData.slug) {
@@ -166,14 +166,14 @@ export async function updateCategory(input: unknown): Promise<ActionResult> {
 
     await logAction({
       action: "category.update",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Category",
       entityId: category.id,
       metadata: { name: category.name, slug: category.slug },
     });
 
-    revalidatePath("/dashboard/categories");
+    revalidatePath(`/dashboard/${tenantId}/categories`);
     return { success: true };
   } catch (error) {
     console.error("[categories] update error:", error);
@@ -183,7 +183,6 @@ export async function updateCategory(input: unknown): Promise<ActionResult> {
 
 export async function deleteCategory(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = deleteCategorySchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -191,7 +190,8 @@ export async function deleteCategory(input: unknown): Promise<ActionResult> {
     }
     const { id, tenantId } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     // Check if category has children
     const childrenCount = await prisma.category.count({ where: { parentId: id } });
@@ -209,13 +209,13 @@ export async function deleteCategory(input: unknown): Promise<ActionResult> {
 
     await logAction({
       action: "category.delete",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Category",
       entityId: id,
     });
 
-    revalidatePath("/dashboard/categories");
+    revalidatePath(`/dashboard/${tenantId}/categories`);
     return { success: true, message: "Catégorie supprimée" };
   } catch (error) {
     console.error("[categories] delete error:", error);
@@ -225,7 +225,6 @@ export async function deleteCategory(input: unknown): Promise<ActionResult> {
 
 export async function reorderCategories(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = reorderCategoriesSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -233,7 +232,8 @@ export async function reorderCategories(input: unknown): Promise<ActionResult> {
     }
     const { tenantId, categories } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     await prisma.$transaction(
       categories.map(({ id, sortOrder }) =>
@@ -244,16 +244,10 @@ export async function reorderCategories(input: unknown): Promise<ActionResult> {
       )
     );
 
-    revalidatePath("/dashboard/categories");
+    revalidatePath(`/dashboard/${tenantId}/categories`);
     return { success: true, message: "Ordre mis à jour" };
   } catch (error) {
     console.error("[categories] reorder error:", error);
     return failure("Erreur lors de la réorganisation");
   }
-}
-
-// Helper
-async function getCurrentUser() {
-  const { getCurrentUser } = await import("@/lib/auth/permissions");
-  return getCurrentUser();
 }

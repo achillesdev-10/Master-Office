@@ -6,6 +6,7 @@ import { ShoppingCart, Tag, MessageSquare } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
 import { useCart } from "./cart-context";
 import { normalizePhoneNumber } from "@/lib/utils";
+import { useStore, storeHref } from "./store-context";
 import type { Prisma } from "@prisma/client";
 
 interface ProductCardProps {
@@ -25,12 +26,12 @@ interface ProductCardProps {
     }[];
     inStock: boolean;
   };
-  slug: string;
   tenantWhatsAppPhone?: string | null;
 }
 
-export function ProductCard({ product, slug, tenantWhatsAppPhone }: ProductCardProps) {
-  const { addItem } = useCart(slug);
+export function ProductCard({ product, tenantWhatsAppPhone }: ProductCardProps) {
+  const { slug } = useStore();
+  const { addItem } = useCart();
   const hasDiscount = product.compareAtPrice && product.compareAtPrice > product.basePrice;
   const discountPercent = hasDiscount
     ? Math.round(((product.compareAtPrice! - product.basePrice) / product.compareAtPrice!) * 100)
@@ -61,7 +62,7 @@ export function ProductCard({ product, slug, tenantWhatsAppPhone }: ProductCardP
 
   return (
     <Link
-      href={`/store/${slug}/products/${product.slug}`}
+      href={storeHref("", `/products/${product.slug}`)}
       className="group flex flex-col bg-card border rounded-xl overflow-hidden transition-all hover:shadow-lg hover:border-primary/50"
     >
       <div className="relative aspect-square bg-muted overflow-hidden">

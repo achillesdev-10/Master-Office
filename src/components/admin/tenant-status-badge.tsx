@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
  * libellés et couleurs centralisés.
  */
 
-type StatusKey = "DRAFT" | "ACTIVE" | "SUSPENDED" | "ARCHIVED";
+type StatusKey = "DRAFT" | "ACTIVE" | "PAUSED" | "SUSPENDED" | "ARCHIVED";
 
 const STATUS_BADGES: Record<
   StatusKey,
@@ -13,6 +13,7 @@ const STATUS_BADGES: Record<
 > = {
   DRAFT: { label: "Brouillon", variant: "info" },
   ACTIVE: { label: "Active", variant: "success" },
+  PAUSED: { label: "En pause", variant: "info" },
   SUSPENDED: { label: "Suspendue", variant: "destructive" },
   ARCHIVED: { label: "Archivée", variant: "secondary" },
 };

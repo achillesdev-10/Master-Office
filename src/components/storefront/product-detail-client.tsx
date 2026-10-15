@@ -9,7 +9,9 @@ import { formatNumber } from "@/lib/utils";
 import { normalizePhoneNumber } from "@/lib/utils";
 import { useCart } from "./cart-context";
 import { cn } from "@/lib/utils";
+import { useStore, storeHref } from "./store-context";
 import type { Prisma } from "@prisma/client";
+import { submitOrderAction } from "@/lib/actions/storefront/checkout";
 
 interface ProductDetailClientProps {
   initialProduct: {
@@ -74,17 +76,9 @@ interface WhatsAppOrderInput {
   notes?: string;
 }
 
-async function submitWhatsAppOrder(input: WhatsAppOrderInput) {
-  const response = await fetch("/api/storefront/checkout", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  return response.json();
-}
-
 export function ProductDetailClient({ initialProduct, tenant }: ProductDetailClientProps) {
-  const { addItem } = useCart(tenant.slug);
+  const { slug } = useStore();
+  const { addItem } = useCart();
   const [product] = useState(initialProduct);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedVariant, setSelectedVariant] = useState(
@@ -144,13 +138,14 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
 
     setIsOrdering(true);
     try {
-      const result = await submitWhatsAppOrder({
+      const result = await submitOrderAction({
         slug: tenant.slug,
         items: [{ productId: product.id, variantId: selectedVariant?.id, quantity }],
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         address: address.trim(),
         notes: notes.trim() || undefined,
+        website: "", // Honeypot
       });
 
       if (result.success && result.whatsappUrl) {
@@ -177,17 +172,17 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
     <div className="mx-auto max-w-5xl px-4 py-8">
       {/* Fil d'Ariane */}
       <nav className="mb-8 flex flex-wrap items-center gap-2 text-sm text-muted-foreground" aria-label="Fil d'Ariane">
-        <Link href={`/store/${tenant.slug}`} className="hover:underline">
+        <Link href={storeHref("", "/")} className="hover:underline">
           Accueil
         </Link>
         <ChevronRight className="size-4" aria-hidden />
-        <Link href={`/store/${tenant.slug}/products`} className="hover:underline">
+        <Link href={storeHref("", "/products")} className="hover:underline">
           Catalogue
         </Link>
         {product.category && (
           <>
             <ChevronRight className="size-4" aria-hidden />
-            <Link href={`/store/${tenant.slug}/products?category=${product.category.slug}`} className="hover:underline">
+            <Link href={storeHref("", `/products?category=${product.category.slug}`)} className="hover:underline">
               {product.category.name}
             </Link>
           </>
@@ -553,7 +548,7 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-semibold">Vous aimerez aussi</h2>
             <Link
-              href={`/store/${tenant.slug}/products`}
+              href={storeHref("", "/products")}
               className="text-sm font-medium text-primary hover:underline"
             >
               Voir tout le catalogue →
@@ -561,7 +556,7 @@ export function ProductDetailClient({ initialProduct, tenant }: ProductDetailCli
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {product.relatedProducts.map((related) => (
-              <ProductCard key={related.id} product={related} slug={tenant.slug} tenantWhatsAppPhone={tenant.contactPhone} />
+              <ProductCard key={related.id} product={related} tenantWhatsAppPhone={tenant.contactPhone} />
             ))}
           </div>
         </section>

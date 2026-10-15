@@ -1,6 +1,6 @@
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { requireTenantAccess, getCurrentUser } from "@/lib/auth/permissions";
-import { getTenantMembers } from "@/lib/db/queries/tenant-detail";
+import { getUserTenants, type UserTenant } from "@/lib/db/queries/tenant-detail";
 import { redirect } from "next/navigation";
 
 /**
@@ -12,7 +12,7 @@ export default async function DashboardLayout({
   params,
 }: {
   children: React.ReactNode;
-  params: Promise<{ tenant?: string }>;
+  params: Promise<{ tenantId?: string }>;
 }) {
   const user = await getCurrentUser();
   
@@ -20,34 +20,33 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  // Récupère les memberships de l'utilisateur
-  const memberships = await getTenantMembers(user.id);
+  // Récupère les tenants de l'utilisateur
+  const userTenants = await getUserTenants(user.id);
   
-  if (memberships.length === 0) {
+  if (userTenants.length === 0) {
     redirect("/unauthorized");
   }
 
   const resolvedParams = await params;
-  const selectedTenantId = resolvedParams.tenant;
+  const tenantId = resolvedParams.tenantId;
   
-  // Détermine le tenant actif : paramètre URL > premier tenant ADMIN > premier tenant
-  let tenantId: string;
-  if (selectedTenantId) {
-    const membership = memberships.find(m => m.tenantId === selectedTenantId);
-    if (!membership) {
-      redirect("/unauthorized");
+  // Si pas de tenantId (page racine /dashboard), redirige vers le premier tenant
+  if (!tenantId) {
+    const firstTenant = userTenants[0];
+    if (firstTenant) {
+      redirect(`/dashboard/${firstTenant.id}`);
     }
-    tenantId = selectedTenantId;
-  } else {
-    const primaryMembership = memberships.find((m) => m.role === "ADMIN") || memberships[0];
-    if (!primaryMembership) {
-      redirect("/unauthorized");
-    }
-    tenantId = primaryMembership.tenantId;
+    redirect("/unauthorized");
+  }
+  
+  // Vérifie que l'utilisateur a accès à ce tenant
+  const userTenant = userTenants.find((t) => t.id === tenantId);
+  if (!userTenant) {
+    redirect("/unauthorized");
   }
 
-  // Valide l'accès au tenant
+  // Valide l'accès au tenant (SUPER_ADMIN ou membre)
   await requireTenantAccess(tenantId);
 
-  return <DashboardShell tenantId={tenantId} userMemberships={memberships}>{children}</DashboardShell>;
+  return <DashboardShell tenantId={tenantId} userMemberships={userTenants}>{children}</DashboardShell>;
 }

@@ -4,11 +4,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
-import { requireTenantAccess } from "@/lib/auth/permissions";
+import { assertTenantAccess } from "@/lib/auth/permissions";
 import { logAction } from "@/lib/audit/log";
 import { failure, type ActionResult } from "@/lib/actions/types";
 import { flattenErrors } from "@/lib/validators/tenant";
 import { put, del } from "@vercel/blob";
+import { isOwnedBlobUrl } from "@/lib/utils";
 
 const createProductSchema = z.object({
   tenantId: z.string().cuid(),
@@ -65,7 +66,6 @@ const reorderProductImagesSchema = z.object({
 
 export async function createProduct(input: unknown): Promise<ActionResult & { productId?: string }> {
   try {
-    await requireTenantAccess("");
     const parsed = createProductSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -74,7 +74,8 @@ export async function createProduct(input: unknown): Promise<ActionResult & { pr
     const data = parsed.data;
     const { tenantId, images, variants, ...productData } = data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const existingSlug = await prisma.product.findFirst({
       where: { tenantId, slug: data.slug, deletedAt: null },
@@ -91,6 +92,13 @@ export async function createProduct(input: unknown): Promise<ActionResult & { pr
       });
       if (!category) {
         return failure("Catégorie introuvable.", { categoryId: "Catégorie introuvable." });
+      }
+    }
+
+    // Validate images
+    for (const url of images) {
+      if (!isOwnedBlobUrl(url, tenantId)) {
+        return failure(`URL d'image non autorisée: ${url}`);
       }
     }
 
@@ -146,15 +154,15 @@ export async function createProduct(input: unknown): Promise<ActionResult & { pr
 
     await logAction({
       action: "product.create",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Product",
       entityId: product.id,
       metadata: { name: product.name, slug: product.slug },
     });
 
-    revalidatePath("/dashboard/products");
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/products`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, productId: product.id, message: "Produit créé avec succès" };
   } catch (error) {
     console.error("[products] create error:", error);
@@ -164,7 +172,6 @@ export async function createProduct(input: unknown): Promise<ActionResult & { pr
 
 export async function updateProduct(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = updateProductSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -173,7 +180,8 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
     const data = parsed.data;
     const { id, tenantId, images, variants, ...updateData } = data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     if (updateData.slug) {
       const existingSlug = await prisma.product.findFirst({
@@ -195,13 +203,25 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
       }
     }
 
+    // Validate images if provided
+    if (images !== undefined) {
+      for (const url of images) {
+        if (!isOwnedBlobUrl(url, tenantId)) {
+          return failure(`URL d'image non autorisée: ${url}`);
+        }
+      }
+    }
+
     const product = await prisma.$transaction(async (tx) => {
+      // Only update categoryId if explicitly provided
+      const productUpdateData = { ...updateData };
+      if (data.categoryId === undefined) {
+        delete productUpdateData.categoryId;
+      }
+      
       const updatedProduct = await tx.product.update({
         where: { id, tenantId },
-        data: {
-          ...updateData,
-          categoryId: updateData.categoryId ?? null,
-        },
+        data: productUpdateData,
       });
 
       if (images !== undefined) {
@@ -277,16 +297,16 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
 
     await logAction({
       action: "product.update",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Product",
       entityId: product.id,
       metadata: { name: product.name, slug: product.slug },
     });
 
-    revalidatePath("/dashboard/products");
-    revalidatePath(`/dashboard/products/${id}`);
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/products`);
+    revalidatePath(`/dashboard/${tenantId}/products/${id}`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: "Produit mis à jour" };
   } catch (error) {
     console.error("[products] update error:", error);
@@ -296,7 +316,6 @@ export async function updateProduct(input: unknown): Promise<ActionResult> {
 
 export async function deleteProduct(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = deleteProductSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -304,7 +323,8 @@ export async function deleteProduct(input: unknown): Promise<ActionResult> {
     }
     const { id, tenantId } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const product = await prisma.product.findUnique({
       where: { id, tenantId },
@@ -329,15 +349,15 @@ export async function deleteProduct(input: unknown): Promise<ActionResult> {
 
     await logAction({
       action: "product.delete",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Product",
       entityId: id,
       metadata: { name: product.name },
     });
 
-    revalidatePath("/dashboard/products");
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/products`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: "Produit supprimé" };
   } catch (error) {
     console.error("[products] delete error:", error);
@@ -347,7 +367,6 @@ export async function deleteProduct(input: unknown): Promise<ActionResult> {
 
 export async function toggleProductActive(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = toggleProductActiveSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -355,7 +374,8 @@ export async function toggleProductActive(input: unknown): Promise<ActionResult>
     }
     const { id, tenantId, isActive } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const product = await prisma.product.update({
       where: { id, tenantId },
@@ -364,16 +384,16 @@ export async function toggleProductActive(input: unknown): Promise<ActionResult>
 
     await logAction({
       action: isActive ? "product.activate" : "product.deactivate",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Product",
       entityId: product.id,
       metadata: { name: product.name, isActive },
     });
 
-    revalidatePath("/dashboard/products");
-    revalidatePath(`/dashboard/products/${id}`);
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/products`);
+    revalidatePath(`/dashboard/${tenantId}/products/${id}`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: isActive ? "Produit activé" : "Produit désactivé" };
   } catch (error) {
     console.error("[products] toggle active error:", error);
@@ -383,7 +403,6 @@ export async function toggleProductActive(input: unknown): Promise<ActionResult>
 
 export async function toggleProductAvailable(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = toggleProductAvailableSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -391,7 +410,8 @@ export async function toggleProductAvailable(input: unknown): Promise<ActionResu
     }
     const { id, tenantId, trackInventory } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const product = await prisma.product.update({
       where: { id, tenantId },
@@ -400,16 +420,16 @@ export async function toggleProductAvailable(input: unknown): Promise<ActionResu
 
     await logAction({
       action: trackInventory ? "product.enable_inventory" : "product.disable_inventory",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Product",
       entityId: product.id,
       metadata: { name: product.name, trackInventory },
     });
 
-    revalidatePath("/dashboard/products");
-    revalidatePath(`/dashboard/products/${id}`);
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/products`);
+    revalidatePath(`/dashboard/${tenantId}/products/${id}`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: trackInventory ? "Suivi du stock activé" : "Suivi du stock désactivé" };
   } catch (error) {
     console.error("[products] toggle available error:", error);
@@ -419,7 +439,6 @@ export async function toggleProductAvailable(input: unknown): Promise<ActionResu
 
 export async function uploadProductImage(input: unknown): Promise<ActionResult & { url?: string }> {
   try {
-    await requireTenantAccess("");
     const formData = input as FormData;
     const tenantId = formData.get("tenantId") as string;
     const productId = formData.get("productId") as string;
@@ -429,7 +448,8 @@ export async function uploadProductImage(input: unknown): Promise<ActionResult &
       return failure("Paramètres manquants");
     }
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     if (!file.type.startsWith("image/")) {
       return failure("Seules les images sont acceptées");
@@ -470,14 +490,14 @@ export async function uploadProductImage(input: unknown): Promise<ActionResult &
 
     await logAction({
       action: "product.image.upload",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "ProductImage",
       entityId: blob.url,
       metadata: { productId, url: blob.url },
     });
 
-    revalidatePath(`/dashboard/products/${productId}`);
+    revalidatePath(`/dashboard/${tenantId}/products/${productId}`);
     return { success: true, message: "Image ajoutée", url: blob.url };
   } catch (error) {
     console.error("[products] upload image error:", error);
@@ -487,7 +507,6 @@ export async function uploadProductImage(input: unknown): Promise<ActionResult &
 
 export async function deleteProductImage(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const formData = input as FormData;
     const tenantId = formData.get("tenantId") as string;
     const productId = formData.get("productId") as string;
@@ -497,7 +516,8 @@ export async function deleteProductImage(input: unknown): Promise<ActionResult> 
       return failure("Paramètres manquants");
     }
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const image = await prisma.productImage.findUnique({
       where: { id: imageId, tenantId, productId },
@@ -531,14 +551,14 @@ export async function deleteProductImage(input: unknown): Promise<ActionResult> 
 
     await logAction({
       action: "product.image.delete",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "ProductImage",
       entityId: imageId,
       metadata: { productId },
     });
 
-    revalidatePath(`/dashboard/products/${productId}`);
+    revalidatePath(`/dashboard/${tenantId}/products/${productId}`);
     return { success: true, message: "Image supprimée" };
   } catch (error) {
     console.error("[products] delete image error:", error);
@@ -548,7 +568,6 @@ export async function deleteProductImage(input: unknown): Promise<ActionResult> 
 
 export async function reorderProductImages(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = reorderProductImagesSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -556,7 +575,8 @@ export async function reorderProductImages(input: unknown): Promise<ActionResult
     }
     const { tenantId, productId, imageIds } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     await prisma.$transaction(
       imageIds.map((imageId, index) =>
@@ -567,15 +587,10 @@ export async function reorderProductImages(input: unknown): Promise<ActionResult
       )
     );
 
-    revalidatePath(`/dashboard/products/${productId}`);
+    revalidatePath(`/dashboard/${tenantId}/products/${productId}`);
     return { success: true, message: "Ordre des images mis à jour" };
   } catch (error) {
     console.error("[products] reorder images error:", error);
     return failure("Erreur lors de la réorganisation");
   }
-}
-
-async function getCurrentUser() {
-  const { getCurrentUser } = await import("@/lib/auth/permissions");
-  return getCurrentUser();
 }

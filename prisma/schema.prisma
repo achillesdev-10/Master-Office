@@ -29,6 +29,7 @@ enum Role {
 enum TenantStatus {
   DRAFT
   ACTIVE
+  PAUSED
   SUSPENDED
   ARCHIVED
 }
@@ -336,6 +337,7 @@ model Product {
   width       Int?     // Largeur en cm
   height      Int?     // Hauteur en cm
   isActive    Boolean  @default(true)
+  isAvailable Boolean  @default(true)
   isFeatured  Boolean  @default(false)
   requiresShipping Boolean @default(true)
   trackInventory Boolean @default(true)
@@ -486,7 +488,7 @@ model Order {
   id              String       @id @default(cuid())
   tenantId        String
   userId          String?      // Client connecté (optionnel)
-  customerEmail   String       // Email pour notification
+  customerEmail   String?      // Email pour notification (optionnel)
   customerName    String
   customerPhone   String?
   status          OrderStatus  @default(PENDING)

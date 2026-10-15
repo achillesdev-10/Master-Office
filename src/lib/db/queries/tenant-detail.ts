@@ -1,4 +1,4 @@
-import { type Role } from "@prisma/client";
+import { type Role, type TenantStatus } from "@prisma/client";
 import prisma from "@/lib/db/prisma";
 import { maskEncrypted } from "@/lib/security/crypto";
 import { getRootDomain } from "@/lib/db/queries/tenants";
@@ -140,6 +140,33 @@ export async function getTenantMembers(
     email: row.user.email,
     role: row.role,
     createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+export type UserTenant = {
+  id: string;
+  tenantId: string;
+  name: string;
+  slug: string;
+  status: TenantStatus;
+  logoUrl: string | null;
+  role: Role;
+};
+
+export async function getUserTenants(userId: string): Promise<UserTenant[]> {
+  const rows = await prisma.tenantUser.findMany({
+    where: { userId },
+    include: { tenant: { select: { id: true, name: true, slug: true, status: true, logoUrl: true } } },
+  });
+
+  return rows.map((row) => ({
+    id: row.tenant.id,
+    tenantId: row.tenant.id,
+    name: row.tenant.name,
+    slug: row.tenant.slug,
+    status: row.tenant.status,
+    logoUrl: row.tenant.logoUrl,
+    role: row.role,
   }));
 }
 

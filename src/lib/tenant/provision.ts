@@ -32,6 +32,7 @@ export type TenantProvisioning = {
   themeId: string | null;
   domains: string[];
   rootDomain: string;
+  contactPhone: string | null;
 };
 
 /** TTL (secondes) du cache de résolution host → slug pour sous-domaines plateforme. */

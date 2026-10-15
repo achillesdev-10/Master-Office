@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { formatNumber } from "@/lib/utils";
 import { getCartItemsDetail } from "@/lib/actions/storefront/checkout";
 import { useCart } from "@/components/storefront/cart-context";
+import { useStore, storeHref } from "@/components/storefront/store-context";
 
 type Params = Promise<{ slug: string }>;
 
@@ -68,8 +69,9 @@ function CartSummarySkeleton() {
   );
 }
 
-function CartPage({ slug }: { slug: string }) {
-  const { items, itemCount, removeItem, updateQuantity, clearCart, isLoaded } = useCart(slug);
+function CartPage() {
+  const { slug } = useStore();
+  const { items, itemCount, removeItem, updateQuantity, clearCart, isLoaded } = useCart();
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -160,6 +162,7 @@ function CartPage({ slug }: { slug: string }) {
         customerPhone: customerPhone.trim(),
         address: address.trim(),
         notes: notes.trim() || undefined,
+        website: "", // Honeypot
       });
 
       if (result.success && result.whatsappUrl) {
@@ -222,22 +225,22 @@ function CartPage({ slug }: { slug: string }) {
                     Ajoutez des produits pour commencer vos achats.
                   </p>
                   <Link
-                    href={`/store/${slug}/products`}
-                    className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-                  >
-                    <ShoppingCart className="size-4" aria-hidden />
-                    Continuer mes achats
-                  </Link>
+                      href={storeHref("", "/products")}
+                      className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-base font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                    >
+                      <ShoppingCart className="size-4" aria-hidden />
+                      Continuer mes achats
+                    </Link>
                 </div>
               </div>
             ) : (
               <ul className="divide-y" role="list">
-                {cartDetails.items.map((item) => {
-                  const price = item.variant?.compareAtPrice && item.variant.compareAtPrice > item.variant.price
-                    ? item.variant.compareAtPrice
-                    : (item.variant?.price ?? item.product.basePrice);
-                  const hasDiscount = item.variant?.compareAtPrice && item.variant.compareAtPrice > item.variant.price;
-                  const heroImage = item.product.images[0]?.url;
+{cartDetails.items.map((item) => {
+                    // Prix payé = variant.price (ou product.basePrice si pas de variante)
+                    // compareAtPrice sert seulement pour l'affichage barré
+                    const price = item.variant?.price ?? item.product.basePrice;
+                    const hasDiscount = item.variant?.compareAtPrice && item.variant.compareAtPrice > item.variant.price;
+                    const heroImage = item.product.images[0]?.url;
                   return (
                     <li key={`${item.productId}-${item.variantId || "default"}`} className="flex gap-4 rounded-lg border bg-card p-4">
                       <div className="relative h-24 w-24 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
@@ -263,7 +266,7 @@ function CartPage({ slug }: { slug: string }) {
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
                             <Link
-                              href={`/store/${slug}/products/${item.product.slug}`}
+                              href={storeHref("", `/products/${item.product.slug}`)}
                               className="font-medium hover:underline truncate block"
                             >
                               {item.product.name}
@@ -473,21 +476,7 @@ function CartPage({ slug }: { slug: string }) {
   );
 }
 
-async function submitOrderAction(input: {
-  slug: string;
-  items: { productId: string; variantId?: string; quantity: number }[];
-  customerName: string;
-  customerPhone: string;
-  address: string;
-  notes?: string;
-}) {
-  const response = await fetch("/api/storefront/checkout", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  return response.json();
-}
+import { submitOrderAction } from "@/lib/actions/storefront/checkout";
 
 export default async function CartPageWrapper({
   params,
@@ -497,7 +486,7 @@ export default async function CartPageWrapper({
   const { slug } = await params;
   return (
     <div className="flex-1 py-8 px-4">
-      <CartPage slug={slug} />
+      <CartPage />
     </div>
   );
 }

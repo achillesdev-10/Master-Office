@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/db/prisma";
-import { requireTenantAccess } from "@/lib/auth/permissions";
+import { assertTenantAccess } from "@/lib/auth/permissions";
 import { logAction } from "@/lib/audit/log";
 import { failure, type ActionResult } from "@/lib/actions/types";
 import { flattenErrors } from "@/lib/validators/tenant";
@@ -52,7 +52,6 @@ const uploadLogoSchema = z.object({
 
 export async function updateTenantInfo(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = updateTenantInfoSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -61,7 +60,8 @@ export async function updateTenantInfo(input: unknown): Promise<ActionResult> {
     const data = parsed.data;
     const { tenantId, ...updateData } = data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const tenant = await prisma.tenant.update({
       where: { id: tenantId },
@@ -70,15 +70,15 @@ export async function updateTenantInfo(input: unknown): Promise<ActionResult> {
 
     await logAction({
       action: "tenant.update.info",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Tenant",
       entityId: tenant.id,
       metadata: { name: tenant.name },
     });
 
-    revalidatePath("/dashboard/settings");
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/settings`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: "Informations générales mises à jour" };
   } catch (error) {
     console.error("[settings] update info error:", error);
@@ -88,7 +88,6 @@ export async function updateTenantInfo(input: unknown): Promise<ActionResult> {
 
 export async function updateTenantAppearance(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = updateTenantAppearanceSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -97,7 +96,8 @@ export async function updateTenantAppearance(input: unknown): Promise<ActionResu
     const data = parsed.data;
     const { tenantId, ...updateData } = data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const tenant = await prisma.tenant.update({
       where: { id: tenantId },
@@ -106,15 +106,15 @@ export async function updateTenantAppearance(input: unknown): Promise<ActionResu
 
     await logAction({
       action: "tenant.update.appearance",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Tenant",
       entityId: tenant.id,
       metadata: { primaryColor: tenant.primaryColor, themeId: tenant.themeId },
     });
 
-    revalidatePath("/dashboard/settings");
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/settings`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: "Apparence mise à jour" };
   } catch (error) {
     console.error("[settings] update appearance error:", error);
@@ -124,7 +124,6 @@ export async function updateTenantAppearance(input: unknown): Promise<ActionResu
 
 export async function updateTenantWhatsApp(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = updateTenantWhatsAppSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -133,7 +132,8 @@ export async function updateTenantWhatsApp(input: unknown): Promise<ActionResult
     const data = parsed.data;
     const { tenantId, whatsappPhone } = data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const tenant = await prisma.tenant.update({
       where: { id: tenantId },
@@ -142,15 +142,15 @@ export async function updateTenantWhatsApp(input: unknown): Promise<ActionResult
 
     await logAction({
       action: "tenant.update.whatsapp",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Tenant",
       entityId: tenant.id,
       metadata: { whatsappPhone },
     });
 
-    revalidatePath("/dashboard/settings");
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/settings`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: "Numéro WhatsApp mis à jour" };
   } catch (error) {
     console.error("[settings] update whatsapp error:", error);
@@ -160,7 +160,6 @@ export async function updateTenantWhatsApp(input: unknown): Promise<ActionResult
 
 export async function updateTenantAddress(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = updateTenantAddressSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -169,7 +168,8 @@ export async function updateTenantAddress(input: unknown): Promise<ActionResult>
     const data = parsed.data;
     const { tenantId, ...updateData } = data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const tenant = await prisma.tenant.update({
       where: { id: tenantId },
@@ -178,15 +178,15 @@ export async function updateTenantAddress(input: unknown): Promise<ActionResult>
 
     await logAction({
       action: "tenant.update.address",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Tenant",
       entityId: tenant.id,
       metadata: { address: tenant.address, hours: tenant.hours },
     });
 
-    revalidatePath("/dashboard/settings");
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/settings`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: "Adresse et horaires mis à jour" };
   } catch (error) {
     console.error("[settings] update address error:", error);
@@ -196,7 +196,6 @@ export async function updateTenantAddress(input: unknown): Promise<ActionResult>
 
 export async function updateTenantStatus(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = updateTenantStatusSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -204,25 +203,48 @@ export async function updateTenantStatus(input: unknown): Promise<ActionResult> 
     }
     const { tenantId, isActive } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
+    // Owner can only toggle between ACTIVE and PAUSED
+    const currentTenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true },
+    });
+
+    if (!currentTenant) {
+      return failure("Boutique introuvable");
+    }
+
+    // If not SUPER_ADMIN, restrict status changes
+    if (access.user.role !== "SUPER_ADMIN") {
+      const allowedStatuses = ["ACTIVE", "PAUSED"];
+      if (!allowedStatuses.includes(currentTenant.status)) {
+        return failure("Vous ne pouvez pas modifier le statut d'une boutique suspendue ou archivée");
+      }
+      if (!allowedStatuses.includes(isActive ? "ACTIVE" : "PAUSED")) {
+        return failure("Statut non autorisé");
+      }
+    }
+
+    const newStatus = isActive ? "ACTIVE" : "PAUSED";
     const tenant = await prisma.tenant.update({
       where: { id: tenantId },
-      data: { status: isActive ? "ACTIVE" : "SUSPENDED" },
+      data: { status: newStatus },
     });
 
     await logAction({
-      action: isActive ? "tenant.activate" : "tenant.suspend",
-      userId: (await getCurrentUser())?.id ?? null,
+      action: isActive ? "tenant.activate" : "tenant.pause",
+      userId: access.user.id,
       tenantId,
       entity: "Tenant",
       entityId: tenant.id,
       metadata: { status: tenant.status },
     });
 
-    revalidatePath("/dashboard/settings");
-    revalidatePath("/dashboard");
-    return { success: true, message: isActive ? "Boutique activée" : "Boutique suspendue" };
+    revalidatePath(`/dashboard/${tenantId}/settings`);
+    revalidatePath(`/dashboard/${tenantId}`);
+    return { success: true, message: isActive ? "Boutique activée" : "Boutique mise en pause" };
   } catch (error) {
     console.error("[settings] update status error:", error);
     return failure("Erreur lors du changement de statut");
@@ -231,7 +253,6 @@ export async function updateTenantStatus(input: unknown): Promise<ActionResult> 
 
 export async function uploadTenantLogo(input: unknown): Promise<ActionResult & { url?: string }> {
   try {
-    await requireTenantAccess("");
     const parsed = uploadLogoSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -239,7 +260,8 @@ export async function uploadTenantLogo(input: unknown): Promise<ActionResult & {
     }
     const { tenantId, file } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     if (!file.type.startsWith("image/")) {
       return failure("Seules les images sont acceptées");
@@ -260,15 +282,15 @@ export async function uploadTenantLogo(input: unknown): Promise<ActionResult & {
 
     await logAction({
       action: "tenant.update.logo",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Tenant",
       entityId: tenant.id,
       metadata: { logoUrl: blob.url },
     });
 
-    revalidatePath("/dashboard/settings");
-    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/${tenantId}/settings`);
+    revalidatePath(`/dashboard/${tenantId}`);
     return { success: true, message: "Logo mis à jour", url: blob.url };
   } catch (error) {
     console.error("[settings] upload logo error:", error);
@@ -277,7 +299,8 @@ export async function uploadTenantLogo(input: unknown): Promise<ActionResult & {
 }
 
 export async function getTenantSettings(tenantId: string) {
-  await requireTenantAccess(tenantId);
+  const access = await assertTenantAccess(tenantId);
+  if (!access.ok) return null;
 
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
@@ -306,10 +329,4 @@ export async function getTenantSettings(tenantId: string) {
   if (!tenant) return null;
 
   return tenant;
-}
-
-// Helper
-async function getCurrentUser() {
-  const { getCurrentUser } = await import("@/lib/auth/permissions");
-  return getCurrentUser();
 }

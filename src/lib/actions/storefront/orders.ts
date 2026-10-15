@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/db/prisma";
-import { requireTenantAccess } from "@/lib/auth/permissions";
+import { assertTenantAccess } from "@/lib/auth/permissions";
 import { logAction } from "@/lib/audit/log";
 import { failure, type ActionResult } from "@/lib/actions/types";
 import { flattenErrors } from "@/lib/validators/tenant";
@@ -16,7 +16,6 @@ const updateOrderStatusSchema = z.object({
 
 export async function updateOrderStatus(input: unknown): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
     const parsed = updateOrderStatusSchema.safeParse(input);
     if (!parsed.success) {
       const { fieldErrors, formError } = flattenErrors(parsed.error);
@@ -24,7 +23,8 @@ export async function updateOrderStatus(input: unknown): Promise<ActionResult> {
     }
     const { id, tenantId, status } = parsed.data;
 
-    await requireTenantAccess(tenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const order = await prisma.order.findUnique({
       where: { id, tenantId },
@@ -56,15 +56,15 @@ export async function updateOrderStatus(input: unknown): Promise<ActionResult> {
 
     await logAction({
       action: "order.status.update",
-      userId: (await getCurrentUser())?.id ?? null,
+      userId: access.user.id,
       tenantId,
       entity: "Order",
       entityId: order.id,
       metadata: { from: order.status, to: status, customerName: order.customerName },
     });
 
-    revalidatePath("/dashboard/orders");
-    revalidatePath(`/dashboard/orders/${order.id}`);
+    revalidatePath(`/dashboard/${tenantId}/orders`);
+    revalidatePath(`/dashboard/${tenantId}/orders/${order.id}`);
     return { success: true, message: `Statut mis à jour : ${status}` };
   } catch (error) {
     console.error("[orders] update status error:", error);
@@ -73,7 +73,8 @@ export async function updateOrderStatus(input: unknown): Promise<ActionResult> {
 }
 
 export async function getOrderDetails(tenantId: string, orderId: string) {
-  await requireTenantAccess(tenantId);
+  const access = await assertTenantAccess(tenantId);
+  if (!access.ok) return null;
 
   const order = await prisma.order.findUnique({
     where: { id: orderId, tenantId },
@@ -87,56 +88,54 @@ export async function getOrderDetails(tenantId: string, orderId: string) {
     },
   });
 
-    if (!order) return null;
+  if (!order) return null;
 
-    return {
-      id: order.id,
-      customerName: order.customerName,
-      customerEmail: order.customerEmail,
-      customerPhone: order.customerPhone,
-      status: order.status,
-      paymentStatus: order.paymentStatus,
-      paymentProvider: order.paymentProvider,
-      shippingAddress: order.shippingAddress,
-      billingAddress: order.billingAddress,
-      subtotal: order.subtotal,
-      shippingPrice: order.shippingPrice,
-      discountAmount: order.discountAmount,
-      taxAmount: order.taxAmount,
-      total: order.total,
-      currency: order.currency,
-      notes: order.notes,
-      internalNotes: order.internalNotes,
-      couponCode: order.couponCode,
-      trackingNumber: order.trackingNumber,
-      shippedAt: order.shippedAt,
-      deliveredAt: order.deliveredAt,
-      paymentReference: order.paymentReference,
-      paidAt: order.paidAt,
-      createdAt: order.createdAt.toISOString(),
-      updatedAt: order.updatedAt.toISOString(),
-      items: order.items.map((item) => ({
-        id: item.id,
-        productName: item.productName,
-        variantName: item.variantName,
-        sku: item.sku,
-        price: item.price,
-        quantity: item.quantity,
-        total: item.total,
-        productImage: item.product.images[0]?.url ?? null,
-      })),
-    };
-  }
+  return {
+    id: order.id,
+    customerName: order.customerName,
+    customerEmail: order.customerEmail,
+    customerPhone: order.customerPhone,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    paymentProvider: order.paymentProvider,
+    shippingAddress: order.shippingAddress,
+    billingAddress: order.billingAddress,
+    subtotal: order.subtotal,
+    shippingPrice: order.shippingPrice,
+    discountAmount: order.discountAmount,
+    taxAmount: order.taxAmount,
+    total: order.total,
+    currency: order.currency,
+    notes: order.notes,
+    internalNotes: order.internalNotes,
+    couponCode: order.couponCode,
+    trackingNumber: order.trackingNumber,
+    shippedAt: order.shippedAt,
+    deliveredAt: order.deliveredAt,
+    paymentReference: order.paymentReference,
+    paidAt: order.paidAt,
+    createdAt: order.createdAt.toISOString(),
+    updatedAt: order.updatedAt.toISOString(),
+    items: order.items.map((item) => ({
+      id: item.id,
+      productName: item.productName,
+      variantName: item.variantName,
+      sku: item.sku,
+      price: item.price,
+      quantity: item.quantity,
+      total: item.total,
+      productImage: item.product.images[0]?.url ?? null,
+    })),
+  };
+}
 
 export async function cancelOrder(tenantId: string, orderId: string): Promise<ActionResult> {
   try {
-    await requireTenantAccess("");
-    const { id, tenantId: inputTenantId } = { id: orderId, tenantId };
-
-    await requireTenantAccess(inputTenantId);
+    const access = await assertTenantAccess(tenantId);
+    if (!access.ok) return failure(access.error);
 
     const order = await prisma.order.findUnique({
-      where: { id, tenantId: inputTenantId },
+      where: { id: orderId, tenantId },
       select: { id: true, status: true },
     });
 
@@ -149,29 +148,23 @@ export async function cancelOrder(tenantId: string, orderId: string): Promise<Ac
     }
 
     const updatedOrder = await prisma.order.update({
-      where: { id },
+      where: { id: orderId },
       data: { status: "CANCELLED" },
     });
 
     await logAction({
       action: "order.cancel",
-      userId: (await getCurrentUser())?.id ?? null,
-      tenantId: inputTenantId,
+      userId: access.user.id,
+      tenantId,
       entity: "Order",
       entityId: order.id,
     });
 
-    revalidatePath("/dashboard/orders");
-    revalidatePath(`/dashboard/orders/${orderId}`);
+    revalidatePath(`/dashboard/${tenantId}/orders`);
+    revalidatePath(`/dashboard/${tenantId}/orders/${orderId}`);
     return { success: true, message: "Commande annulée" };
   } catch (error) {
     console.error("[orders] cancel error:", error);
     return failure("Erreur lors de l'annulation de la commande");
   }
-}
-
-// Helper
-async function getCurrentUser() {
-  const { getCurrentUser } = await import("@/lib/auth/permissions");
-  return getCurrentUser();
 }

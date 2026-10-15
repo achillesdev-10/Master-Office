@@ -70,6 +70,7 @@ export async function resolveTenant(
       description: true,
       themeId: true,
       domains: { select: { domain: true }, orderBy: { createdAt: "asc" } },
+      contactPhone: true,
     },
   });
 
@@ -92,6 +93,7 @@ export async function resolveTenant(
     themeId: row.themeId,
     domains: row.domains.map((domain) => domain.domain),
     rootDomain: getRootDomain(),
+    contactPhone: row.contactPhone,
   };
 
   await provisionTenant(config);

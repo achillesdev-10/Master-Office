@@ -117,8 +117,9 @@ export async function getCartItemsDetail(slug: string, items: CartItemInput[]): 
         }
       }
 
-      const effectivePrice = compareAtPrice && compareAtPrice > price ? compareAtPrice : price;
-      const lineTotal = effectivePrice * item.quantity;
+      // Le prix payé est TOUJOURS price (variant.price ou product.basePrice)
+      // compareAtPrice ne sert qu'à l'affichage barré
+      const lineTotal = price * item.quantity;
 
       return {
         productId: product.id,
@@ -195,19 +196,25 @@ function buildWhatsAppMessage(order: WhatsAppOrder, tenant: WhatsAppTenant): str
     `👤 *Client :* ${order.customerName}`,
     `📱 *Téléphone :* ${order.customerPhone}`,
     "",
-    `📦 *Adresse de livraison :*`,
-    `${order.shippingAddress.name}`,
-    `${order.shippingAddress.address}`,
-    `${order.shippingAddress.city}`,
-    `${order.shippingAddress.phone}`,
+    `📦 *Adresse :* ${order.shippingAddress.address}, ${order.shippingAddress.city}`,
     "",
     `🛒 *Articles :*`,
   ];
 
+  let itemLinesCount = 0;
+  const MAX_ITEMS = 15; // Limite pour éviter les messages trop longs
+
   for (const item of order.items) {
-    lines.push(
-      `• ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} x${item.quantity} — ${formatXOF(item.total)}`
-    );
+    if (itemLinesCount < MAX_ITEMS) {
+      lines.push(
+        `• ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} x${item.quantity} — ${formatXOF(item.total)}`
+      );
+    }
+    itemLinesCount++;
+  }
+
+  if (itemLinesCount > MAX_ITEMS) {
+    lines.push(`• … et ${itemLinesCount - MAX_ITEMS} autre${itemLinesCount - MAX_ITEMS > 1 ? "s" : ""} article${itemLinesCount - MAX_ITEMS > 1 ? "s" : ""}`);
   }
 
   lines.push("");
@@ -217,36 +224,19 @@ function buildWhatsAppMessage(order: WhatsAppOrder, tenant: WhatsAppTenant): str
   lines.push(`💳 *Paiement et livraison à convenir avec le vendeur sur WhatsApp*`);
   if (order.notes) lines.push(`📝 *Notes :* ${order.notes}`);
 
-  return lines.join("\n");
-}
+  let message = lines.join("\n");
 
-/**
- * Créer une commande et retourner l'URL WhatsApp
- */
-export async function createOrderAction(input: unknown): Promise<ActionResult & { orderId?: string; whatsappUrl?: string }> {
-  try {
-    const parsed = checkoutSchema.safeParse(input);
-    if (!parsed.success) {
-      const { fieldErrors, formError } = flattenErrors(parsed.error);
-      return failure(formError, fieldErrors);
-    }
-    const data = parsed.data;
-
-    const tenant = await resolveTenant(data.slug);
-    if (!tenant) return failure("Boutique introuvable");
-
-    // Récupérer le panier (localStorage côté client, pas de session serveur)
-    // Le panier est géré côté client, ici on reçoit les items directement
-    // Pour la V1, on suppose que le panier est passé dans l'input
-    // Mais comme l'action est appelée depuis le client avec localStorage,
-    // on doit recevoir les items dans l'input. Modifions le schéma.
-
-    return failure("Utilisez submitOrderAction à la place");
-  } catch (error) {
-    console.error("[storefront] createOrder error:", error);
-    return failure(error instanceof Error ? error.message : "Erreur lors de la création de la commande");
+  // Tronquer si trop long (~1500 caractères max pour WhatsApp)
+  const MAX_LENGTH = 1500;
+  if (message.length > MAX_LENGTH) {
+    message = message.substring(0, MAX_LENGTH - 3) + "...";
   }
+
+  return message;
 }
+
+import { checkRateLimit, getOrderRateLimitKey } from "@/lib/security/rate-limit";
+import { headers } from "next/headers";
 
 /**
  * Soumettre une commande depuis le panier localStorage
@@ -265,6 +255,8 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
       customerPhone: z.string().trim().min(8, "Numéro de téléphone invalide").max(32),
       address: z.string().trim().min(5, "Adresse requise").max(200),
       notes: z.string().max(500).optional(),
+      // Honeypot field (doit rester vide)
+      website: z.string().optional(),
     });
 
     const parsed = schema.safeParse(input);
@@ -274,8 +266,22 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
     }
     const data = parsed.data;
 
+    // Honeypot check: si rempli, faux succès sans créer de commande
+    if (data.website && data.website.trim() !== "") {
+      return { success: true, message: "Commande créée avec succès", orderId: "honeypot", whatsappUrl: "" };
+    }
+
     const tenant = await resolveTenant(data.slug);
     if (!tenant) return failure("Boutique introuvable");
+
+    // Rate limiting: 5 commandes max par 10 min par IP + tenant
+    const headersList = await headers();
+    const forwardedFor = headersList.get("x-forwarded-for");
+    const rateLimitKey = getOrderRateLimitKey(tenant.id, forwardedFor);
+    const rateLimit = await checkRateLimit(rateLimitKey, 5, 10 * 60 * 1000);
+    if (!rateLimit.allowed) {
+      return failure("Trop de commandes depuis cette adresse. Veuillez patienter quelques minutes.");
+    }
 
     // Protection anti-spam : limiter les commandes du même téléphone
     const recentOrders = await prisma.order.count({
@@ -418,7 +424,7 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
       const newOrder = await tx.order.create({
         data: {
           tenantId: tenant.id,
-          customerEmail: `${data.customerPhone}@whatsapp.order`,
+          customerEmail: undefined,
           customerName: data.customerName,
           customerPhone: data.customerPhone,
           status: "PENDING",
@@ -450,7 +456,7 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
       return newOrder;
     });
 
-    // Logger l'action
+    // Logger l'action (sans le téléphone du client dans les métadonnées)
     await logAction({
       action: "order.create",
       userId: null,
@@ -458,7 +464,6 @@ export async function submitOrderAction(input: unknown): Promise<ActionResult & 
       entity: "Order",
       entityId: order.id,
       metadata: {
-        customerPhone: data.customerPhone,
         total,
         itemCount: orderItems.length,
       },

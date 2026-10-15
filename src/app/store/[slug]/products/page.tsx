@@ -94,7 +94,7 @@ async function ProductGrid({
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {result.items.map((product) => (
-            <ProductCard key={product.id} product={product} slug={slug} />
+            <ProductCard key={product.id} product={product} tenantWhatsAppPhone={tenant.contactPhone} />
           ))}
         </div>
       )}
@@ -403,7 +403,7 @@ async function CategoriesSection({ slug }: { slug: string }) {
     <section className="py-12 px-4 bg-muted/30">
       <div className="mx-auto max-w-5xl">
         <h2 className="mb-6 text-2xl font-semibold">Nos catégories</h2>
-        <CategoryNav categories={categories} slug={slug} />
+        <CategoryNav categories={categories} />
       </div>
     </section>
   );

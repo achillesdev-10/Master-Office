@@ -4,19 +4,20 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CategoryListItem } from "@/lib/db/queries/storefront/products";
+import { useStore, storeHref } from "./store-context";
 
 interface CategoryNavProps {
   categories: CategoryListItem[];
-  slug: string;
 }
 
-export function CategoryNav({ categories, slug }: CategoryNavProps) {
+export function CategoryNav({ categories }: CategoryNavProps) {
+  const { slug } = useStore();
   return (
     <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {categories.map((category) => (
         <Link
           key={category.id}
-          href={`/store/${slug}/products?category=${category.slug}`}
+          href={storeHref("", `/products?category=${category.slug}`)}
           className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-all hover:shadow-lg hover:border-primary/50"
         >
           {category.imageUrl ? (

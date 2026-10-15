@@ -36,11 +36,12 @@ import { TenantsGrowthChart } from "@/components/admin/tenants-growth-chart";
 const KPI_SKELETON_KEYS = [0, 1, 2, 3];
 const LIST_SKELETON_KEYS = [0, 1, 2, 3, 4];
 
-type TenantStatusStyle = "DRAFT" | "ACTIVE" | "SUSPENDED" | "ARCHIVED";
+type TenantStatusStyle = "DRAFT" | "ACTIVE" | "PAUSED" | "SUSPENDED" | "ARCHIVED";
 
 const STATUS_LABELS: Record<TenantStatusStyle, string> = {
   DRAFT: "Brouillon",
   ACTIVE: "Active",
+  PAUSED: "En pause",
   SUSPENDED: "Suspendue",
   ARCHIVED: "Archivée",
 };
@@ -48,6 +49,8 @@ const STATUS_LABELS: Record<TenantStatusStyle, string> = {
 const STATUS_STYLES: Record<TenantStatusStyle, string> = {
   DRAFT:
     "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-400",
+  PAUSED:
+    "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400",
   ACTIVE:
     "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400",
   SUSPENDED:

@@ -1,6 +1,5 @@
-"use server";
-
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import { Role, type User } from "@prisma/client";
 import prisma from "@/lib/db/prisma";
 
@@ -75,24 +74,18 @@ export async function requireSuperAdmin(): Promise<User> {
   const user = await getCurrentUser();
 
   if (!user) {
-    const { redirect } = await import("next/navigation");
     redirect("/login");
   }
 
-  // TypeScript narrowing: user is guaranteed to be non-null here
-  const currentUser = user!;
-
-  if (currentUser.role !== Role.SUPER_ADMIN) {
-    const { redirect } = await import("next/navigation");
+  if (user.role !== Role.SUPER_ADMIN) {
     redirect("/unauthorized");
   }
 
-  if (currentUser.disabled) {
-    const { redirect } = await import("next/navigation");
+  if (user.disabled) {
     redirect("/unauthorized");
   }
 
-  return currentUser;
+  return user;
 }
 
 /**
@@ -103,32 +96,59 @@ export async function requireTenantAccess(tenantId: string): Promise<User> {
   const user = await getCurrentUser();
 
   if (!user) {
-    const { redirect } = await import("next/navigation");
     redirect("/login");
   }
 
-  // TypeScript narrowing: user is guaranteed to be non-null here
-  const currentUser = user!;
-
-  if (currentUser.disabled) {
-    const { redirect } = await import("next/navigation");
+  if (user.disabled) {
     redirect("/unauthorized");
   }
 
   // SUPER_ADMIN a accès à tout
-  if (currentUser.role === Role.SUPER_ADMIN) {
-    return currentUser;
+  if (user.role === Role.SUPER_ADMIN) {
+    return user;
   }
 
   // Vérifie l'appartenance au tenant
   const membership = await prisma.tenantUser.findUnique({
-    where: { tenantId_userId: { tenantId, userId: currentUser.id } },
+    where: { tenantId_userId: { tenantId, userId: user.id } },
   });
 
   if (!membership) {
-    const { redirect } = await import("next/navigation");
     redirect("/unauthorized");
   }
 
-  return currentUser;
+  return user;
+}
+
+/**
+ * Vérifie l'accès au tenant sans rediriger (pour usage dans les Server Actions).
+ * Renvoie { ok: true, user } ou { ok: false, error }.
+ * NE REDIRIGE JAMAIS.
+ */
+export async function assertTenantAccess(tenantId: string): Promise<{ ok: true; user: User } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { ok: false, error: "Non authentifié" };
+  }
+
+  if (user.disabled) {
+    return { ok: false, error: "Compte désactivé" };
+  }
+
+  // SUPER_ADMIN a accès à tout
+  if (user.role === Role.SUPER_ADMIN) {
+    return { ok: true, user };
+  }
+
+  // Vérifie l'appartenance au tenant
+  const membership = await prisma.tenantUser.findUnique({
+    where: { tenantId_userId: { tenantId, userId: user.id } },
+  });
+
+  if (!membership) {
+    return { ok: false, error: "Accès refusé" };
+  }
+
+  return { ok: true, user };
 }

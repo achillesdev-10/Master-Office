@@ -192,6 +192,7 @@ export async function createTenant(input: unknown): Promise<CreateTenantResult> 
       themeId: tenant.themeId,
       domains: allDomains,
       rootDomain: getRootDomain(),
+      contactPhone: tenant.contactPhone,
     });
     invalidateTenantResolveCache(tenant.slug);
 

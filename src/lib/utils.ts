@@ -67,3 +67,21 @@ export function normalizePhoneNumber(phone: string | null | undefined): string |
   // Sinon, si longueur valide, suppose déjà format international
   return digits.length >= 8 && digits.length <= 15 ? digits : null;
 }
+
+/**
+ * Vérifie si une URL appartient au tenant (blob Vercel Storage).
+ * L'URL doit être hébergée sur *.blob.vercel-storage.com ET commencer par /tenants/${tenantId}/
+ */
+export function isOwnedBlobUrl(url: string, tenantId: string): boolean {
+  try {
+    const parsedUrl = new URL(url);
+    // Vérifie que l'hôte est Vercel Blob
+    if (!parsedUrl.hostname.endsWith(".blob.vercel-storage.com")) {
+      return false;
+    }
+    // Vérifie que le chemin commence par /tenants/${tenantId}/
+    return parsedUrl.pathname.startsWith(`/tenants/${tenantId}/`);
+  } catch {
+    return false;
+  }
+}

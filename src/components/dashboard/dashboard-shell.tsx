@@ -31,27 +31,23 @@ interface DashboardShellProps {
 }
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Tableau de bord", icon: Store },
-  { href: "/dashboard/products", label: "Produits", icon: Package },
-  { href: "/dashboard/categories", label: "Catégories", icon: ShoppingBag },
-  { href: "/dashboard/orders", label: "Commandes", icon: Package },
-  { href: "/dashboard/settings", label: "Paramètres", icon: Settings },
+  { label: "Tableau de bord", icon: Store },
+  { label: "Produits", icon: Package },
+  { label: "Catégories", icon: ShoppingBag },
+  { label: "Commandes", icon: Package },
+  { label: "Paramètres", icon: Settings },
 ] as const;
 
 export function DashboardShell({ children, tenantId, userMemberships }: DashboardShellProps) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const currentTenant = userMemberships.find((m) => m.tenantId === tenantId);
-  const otherMemberships = userMemberships.filter((m) => m.tenantId !== tenantId);
 
   const handleTenantChange = (newTenantId: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("tenant", newTenantId);
-    router.push(`${pathname}?${params.toString()}`);
+    router.push(`/dashboard/${newTenantId}`);
   };
 
   return (
@@ -75,7 +71,7 @@ export function DashboardShell({ children, tenantId, userMemberships }: Dashboar
         <div className="flex h-full flex-col">
           {/* Header sidebar */}
           <div className="flex h-16 items-center gap-3 border-b px-4">
-            <Link href={`/dashboard?tenant=${tenantId}`} className="flex items-center gap-2">
+            <Link href={`/dashboard/${tenantId}`} className="flex items-center gap-2">
               <Store className="size-6 text-primary" aria-hidden />
               <span className="font-semibold truncate">Mon Dashboard</span>
             </Link>
@@ -84,12 +80,13 @@ export function DashboardShell({ children, tenantId, userMemberships }: Dashboar
           {/* Navigation */}
           <nav className="flex-1 space-y-1 p-3" aria-label="Navigation principale">
             {NAV_ITEMS.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const href = `/dashboard/${tenantId}${item.label === "Tableau de bord" ? "" : `/${item.label.toLowerCase()}`}`;
+              const isActive = pathname === href || pathname.startsWith(href + "/");
               const Icon = item.icon;
               return (
                 <Link
-                  key={item.href}
-                  href={`${item.href}?tenant=${tenantId}`}
+                  key={item.label}
+                  href={href}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isActive
@@ -172,7 +169,7 @@ export function DashboardShell({ children, tenantId, userMemberships }: Dashboar
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href={`/dashboard/settings?tenant=${tenantId}`} className="flex w-full items-center gap-2 px-2 py-1.5 text-sm">
+                <Link href={`/dashboard/${tenantId}/settings`} className="flex w-full items-center gap-2 px-2 py-1.5 text-sm">
                   <Settings className="size-4" aria-hidden />
                   Paramètres
                 </Link>
